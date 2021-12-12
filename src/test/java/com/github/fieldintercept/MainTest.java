@@ -4,17 +4,13 @@ import com.github.fieldintercept.annotation.EnumFieldConsumer;
 import com.github.fieldintercept.annotation.FieldConsumer;
 import org.aspectj.lang.JoinPoint;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 public class MainTest {
-    public enum CustomerUserStatusEnum {
-        WAIT_ACTIVATED,
-        NORMAL,
-        DISABLE,
-        ;
-    }
-
     public static final String CUSTOMER_USER = "CUSTOMER_USER";
 
     public static void main(String[] args) {
@@ -74,5 +70,27 @@ public class MainTest {
         dispatchAop.autowiredFieldValue(department);
 
         System.out.println("department = " + department);
+    }
+
+    public enum CustomerUserStatusEnum implements Enum<Integer, String> {
+        WAIT_ACTIVATED("待激活"),
+        NORMAL("正常"),
+        DISABLE("停用"),
+        ;
+        private final String value;
+
+        CustomerUserStatusEnum(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public Integer getKey() {
+            return ordinal();
+        }
+
+        @Override
+        public String getValue() {
+            return value;
+        }
     }
 }
