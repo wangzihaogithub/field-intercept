@@ -10,6 +10,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -89,6 +91,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     /**
      * 下划线转驼峰
+     *
      * @param str 字符串
      * @return 驼峰
      */
@@ -105,6 +108,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     /**
      * 驼峰转下划线,效率比上面高
+     *
      * @param str 字符串
      * @return 下划线
      */
@@ -319,6 +323,15 @@ public class BeanMap extends LinkedHashMap<String, Object> {
         return descriptor instanceof FieldPropertyDescriptor ? ((FieldPropertyDescriptor) descriptor).getDeclaredAnnotations() : null;
     }
 
+    @Override
+    public Object putIfAbsent(String key, Object value) {
+        Object v = get(key);
+        if (v == null) {
+            v = put(key, value);
+        }
+        return v;
+    }
+
     public FieldPropertyDescriptor getFieldPropertyDescriptor(Object key) {
         return getPropertyDescriptor(fieldDescriptorMap, key);
     }
@@ -510,6 +523,107 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     public void putAll(Map<? extends String, ?> m) {
         for (Map.Entry e : m.entrySet()) {
             set((String) e.getKey(), e.getValue());
+        }
+    }
+
+    @Override
+    public Object replace(String key, Object value) {
+        Object curValue;
+        if (((curValue = get(key)) != null) || containsKey(key)) {
+            curValue = put(key, value);
+        }
+        return curValue;
+    }
+
+    @Override
+    public boolean replace(String key, Object oldValue, Object newValue) {
+        Object curValue = get(key);
+        if (!Objects.equals(curValue, oldValue) ||
+                (curValue == null && !containsKey(key))) {
+            return false;
+        }
+        set(key, newValue);
+        return true;
+    }
+
+    @Override
+    public void replaceAll(BiFunction<? super String, ? super Object, ?> function) {
+        Objects.requireNonNull(function);
+        for (Map.Entry<String, Object> entry : entrySet()) {
+            String k;
+            Object v;
+            try {
+                k = entry.getKey();
+                v = entry.getValue();
+            } catch (IllegalStateException ise) {
+                // this usually means the entry is no longer in the map.
+                throw new ConcurrentModificationException(ise);
+            }
+
+            // ise thrown from function is not a cme.
+            v = function.apply(k, v);
+
+            try {
+                entry.setValue(v);
+            } catch (IllegalStateException ise) {
+                // this usually means the entry is no longer in the map.
+                throw new ConcurrentModificationException(ise);
+            }
+        }
+    }
+
+    @Override
+    public Object compute(String key, BiFunction<? super String, ? super Object, ?> remappingFunction) {
+        Objects.requireNonNull(remappingFunction);
+        Object oldValue = get(key);
+
+        Object newValue = remappingFunction.apply(key, oldValue);
+        if (newValue == null) {
+            // delete mapping
+            if (oldValue != null || containsKey(key)) {
+                // something to remove
+                remove(key);
+                return null;
+            } else {
+                // nothing to do. Leave things as they were.
+                return null;
+            }
+        } else {
+            // add or replace old mapping
+            set(key, newValue);
+            return newValue;
+        }
+    }
+
+    @Override
+    public Object computeIfAbsent(String key, Function<? super String, ?> mappingFunction) {
+        Objects.requireNonNull(mappingFunction);
+        Object v;
+        if ((v = get(key)) == null) {
+            Object newValue;
+            if ((newValue = mappingFunction.apply(key)) != null) {
+                set(key, newValue);
+                return newValue;
+            }
+        }
+        return v;
+    }
+
+    @Override
+    public Object computeIfPresent(String key, BiFunction<? super String, ? super Object, ?> remappingFunction) {
+        Objects.requireNonNull(remappingFunction);
+        Object oldValue;
+        if ((oldValue = get(key)) != null) {
+            Object newValue = remappingFunction.apply(key, oldValue);
+            if (newValue != null) {
+                set(key, newValue);
+                return newValue;
+            } else {
+                remove(key);
+                return null;
+            }
+        } else {
+            return null;
         }
     }
 
