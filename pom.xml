@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.github.wangzihaogithub</groupId>
     <artifactId>field-intercept</artifactId>
-    <version>0.0.1</version>
+    <version>0.0.1-SNAPSHOT</version>
     <name>field-intercept</name>
     <description>Field intercept project for Spring</description>
     <properties>
