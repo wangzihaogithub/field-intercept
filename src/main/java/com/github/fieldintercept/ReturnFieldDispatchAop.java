@@ -45,7 +45,7 @@ public class ReturnFieldDispatchAop {
     private Predicate<Class> skipFieldClassPredicate = type-> AnnotationUtils.findAnnotation(type, Indexed.class) != null;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
-        this(map::get);
+        this.biConsumerFunction = map::get;
     }
 
     public ReturnFieldDispatchAop(Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction) {
