@@ -255,13 +255,21 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 value = choseValue(valueMap, rewriteKeyDataList);
                 if (List.class.isAssignableFrom(fieldType)) {
                     List list = new ArrayList(1);
-                    if (value != null) {
+                    if (value instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+                        for (Object o : (Collection) value) {
+                            list.add(cast(o, genericType, cField));
+                        }
+                    } else if (value != null) {
                         list.add(cast(value, genericType, cField));
                     }
                     value = (VALUE) list;
                 } else if (Set.class.isAssignableFrom(fieldType)) {
                     Set set = new LinkedHashSet(1);
-                    if (value != null) {
+                    if (value instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+                        for (Object o : (Collection) value) {
+                            set.add(cast(o, genericType, cField));
+                        }
+                    } else if (value != null) {
                         set.add(cast(value, genericType, cField));
                     }
                     value = (VALUE) set;
@@ -297,16 +305,34 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                         continue;
                     }
                     if (list != null) {
-                        eachValue = (VALUE) cast(eachValue, genericType, cField);
-                        list.add(eachValue);
+                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+                            for (Object o : (Collection) eachValue) {
+                                list.add((VALUE) cast(o, genericType, cField));
+                            }
+                        } else {
+                            eachValue = (VALUE) cast(eachValue, genericType, cField);
+                            list.add(eachValue);
+                        }
                     } else if (set != null) {
-                        eachValue = (VALUE) cast(eachValue, genericType, cField);
-                        set.add(eachValue);
+                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+                            for (Object o : (Collection) eachValue) {
+                                set.add((VALUE) cast(o, genericType, cField));
+                            }
+                        } else {
+                            eachValue = (VALUE) cast(eachValue, genericType, cField);
+                            set.add(eachValue);
+                        }
                     } else if (array != null) {
                         eachValue = (VALUE) cast(eachValue, genericType, cField);
                         Array.set(array, i, eachValue);
                     } else if (joiner != null && !isNull(eachValue)) {
-                        joiner.add(String.valueOf(eachValue));
+                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+                            for (Object o : (Collection) eachValue) {
+                                joiner.add(Objects.toString(o, null));
+                            }
+                        } else {
+                            joiner.add(Objects.toString(eachValue, null));
+                        }
                     } else {
                         value = eachValue;
                         break;

@@ -229,6 +229,11 @@ public class CField {
                     return value == null ? null : String.valueOf(value);
                 }
             }
+
+            @Override
+            protected void logKeyFound(String key, PropertySource<?> propertySource, Object value) {
+
+            }
         };
         propertySources.addLast(new MapPropertySource(map.getClass().getSimpleName(), map));
         if (configurableEnvironment != null) {
