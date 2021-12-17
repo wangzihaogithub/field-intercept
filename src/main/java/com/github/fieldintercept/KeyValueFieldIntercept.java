@@ -373,13 +373,14 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected <TYPE> TYPE cast(Object object, Class<TYPE> type, CField cField) {
+        Object value = object;
         if (cField != null) {
             String resolveValue = cField.resolvePlaceholders(configurableEnvironment, object);
             if (resolveValue != null) {
-                return (TYPE) resolveValue;
+                value = resolveValue;
             }
         }
-        return TypeUtil.cast(object, type);
+        return TypeUtil.cast(value, type);
     }
 
     protected VALUE choseValue(Map<KEY, VALUE> valueMap, KEY[] keyDataList) {
