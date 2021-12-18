@@ -444,15 +444,8 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
                 Field field = getField(propertyDescriptor);
                 if (field != null) {
-                    boolean accessible = field.isAccessible();
                     field.setAccessible(true);
-                    try {
-                        return field.get(bean);
-                    } finally {
-                        if (!accessible) {
-                            field.setAccessible(false);
-                        }
-                    }
+                    return field.get(bean);
                 } else {
                     return super.get(key);
                 }
@@ -490,16 +483,9 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                 Field field = getField(propertyDescriptor);
                 if (field != null && !Modifier.isFinal(field.getModifiers())) {
                     Object castValue = cast(value, field.getType());
-                    boolean accessible = field.isAccessible();
                     field.setAccessible(true);
-                    try {
-                        field.set(bean, castValue);
-                        return true;
-                    } finally {
-                        if (!accessible) {
-                            field.setAccessible(false);
-                        }
-                    }
+                    field.set(bean, castValue);
+                    return true;
                 } else {
                     super.put(key, value);
                 }

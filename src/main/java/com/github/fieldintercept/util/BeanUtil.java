@@ -66,10 +66,10 @@ public class BeanUtil {
     /**
      * 类型转换
      *
-     * @param source 来源
+     * @param source     来源
      * @param returnType 返回类型
-     * @param <T> 元素类型
-     * @param <R> 返回元素类型
+     * @param <T>        元素类型
+     * @param <R>        返回元素类型
      * @return 返回元素类型
      */
     public static <T, R> List<R> transform(Collection<T> source, Class<R> returnType) {
@@ -373,9 +373,9 @@ public class BeanUtil {
      * class不同也支持拷贝
      * 支持循环依赖
      *
-     * @param source 来源
+     * @param source     来源
      * @param returnType 返回类型
-     * @param <R> 返回类型
+     * @param <R>        返回类型
      * @return 返回
      */
     public static <R> R transform(Object source, Class<R> returnType) {
@@ -566,10 +566,7 @@ public class BeanUtil {
             throw new IllegalStateException("Can not newInstance(). class=" + type);
         }
 
-        boolean accessible = constructor.isAccessible();
-        if (!accessible) {
-            constructor.setAccessible(true);
-        }
+        constructor.setAccessible(true);
         try {
             return (T) constructor.newInstance(EMPTY_OBJECT_ARRAY);
         } catch (Exception e) {
@@ -580,11 +577,6 @@ public class BeanUtil {
                 }
             }
             throw new IllegalStateException("Can not newInstance(). e=" + e + ",class=" + type + ",constructor=" + constructor, e);
-
-        } finally {
-            if (!accessible) {
-                constructor.setAccessible(false);
-            }
         }
     }
 
@@ -593,7 +585,7 @@ public class BeanUtil {
      *
      * @param copySource 来源类型
      * @param copyTarget 目标类型
-     * @param <T> 类型
+     * @param <T>        类型
      */
     public static <T> void copyToIfModify(T copySource, T copyTarget) {
         copyToIfModify(copySource, copyTarget, false);
@@ -625,7 +617,7 @@ public class BeanUtil {
      *
      * @param copySource 来源
      * @param copyTarget 目标
-     * @param <T> 类型
+     * @param <T>        类型
      */
     public static <T> void fillIfNull(T copySource, T copyTarget) {
         if (copySource == null || copyTarget == null) {

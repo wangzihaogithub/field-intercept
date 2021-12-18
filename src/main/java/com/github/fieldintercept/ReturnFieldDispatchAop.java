@@ -422,13 +422,8 @@ public class ReturnFieldDispatchAop {
         if (target == null) {
             return null;
         }
-        boolean accessible = field.isAccessible();
-        try {
-            field.setAccessible(true);
-            return field.get(target);
-        } finally {
-            field.setAccessible(accessible);
-        }
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     /**
