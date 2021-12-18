@@ -6,7 +6,6 @@ import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportAware;
 import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -21,7 +20,6 @@ import java.util.function.BiConsumer;
  *
  * @author hao 2021年12月12日19:00:05
  */
-@Configuration(proxyBeanMethods = false)
 public class FieldInterceptAutoConfiguration implements ImportAware {
     private String[] beanBasePackages = {};
 
