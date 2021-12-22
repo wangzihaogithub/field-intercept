@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.LongAdder;
  * 3. 读自己线程的数据，没有时间限制。
  * 4. 如果当前线程不需要共享数据 {@link #remove(Thread)}
  *
- * @param <KEY> key
- * @param <VALUE> value
+ * @param <KEY>
+ * @param <VALUE>
  * @author hao 2021-12-10
  */
 public class ShareThreadMap<KEY, VALUE> {
@@ -39,7 +39,7 @@ public class ShareThreadMap<KEY, VALUE> {
         if (localMap != null) {
             result = localMap.get(key);
         }
-        if (result == null) {
+        if (result == null && shareTimeout > 0) {
             // 从其他线程取
             for (Map.Entry<Thread, ExpiryMap<KEY, VALUE>> entry : shareMap.entrySet()) {
                 Thread ownerThread = entry.getKey();
@@ -152,12 +152,18 @@ public class ShareThreadMap<KEY, VALUE> {
         }
 
         public void putAll(Map<KEY, VALUE> map, int timeout) {
+            if (timeout == 0) {
+                return;
+            }
             for (Map.Entry<KEY, VALUE> entry : map.entrySet()) {
                 cacheMap.put(entry.getKey(), new Value<>(entry.getValue(), timeout));
             }
         }
 
         public VALUE put(KEY key, VALUE value, int timeout) {
+            if (timeout == 0) {
+                return null;
+            }
             Value<VALUE> old = cacheMap.put(key, new Value<>(value, timeout));
             return old != null ? old.data : null;
         }
