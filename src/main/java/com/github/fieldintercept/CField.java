@@ -225,6 +225,9 @@ public class CField {
                     Map value2Map = BeanMap.toMap(value);
                     for (int i = 1; i < keys.length; i++) {
                         value = value2Map.get(keys[i]);
+                        if (i != keys.length - 1) {
+                            value2Map = BeanMap.toMap(value);
+                        }
                     }
                     return value == null ? null : String.valueOf(value);
                 }
