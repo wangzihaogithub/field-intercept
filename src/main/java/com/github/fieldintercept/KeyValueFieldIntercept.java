@@ -21,19 +21,23 @@ import java.util.function.Function;
 public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
     private final Class<KEY> keyClass;
     private final Class<KEY> valueClass;
-    private final ShareThreadMap<KEY, VALUE> shareThreadMap = new ShareThreadMap<>(5000);
-    private Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
+    private final ShareThreadMap<KEY, VALUE> shareThreadMap;
+    private final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
     private ConfigurableEnvironment configurableEnvironment;
 
     public KeyValueFieldIntercept() {
-        this(null, null);
+        this(null, null, 0);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass) {
-        this(keyClass, null);
+    public KeyValueFieldIntercept(int shareTimeout) {
+        this(null, null, shareTimeout);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
+    public KeyValueFieldIntercept(Class<KEY> keyClass, int shareTimeout) {
+        this(keyClass, null, shareTimeout);
+    }
+
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
         if (keyClass == null) {
             if (getClass() != KeyValueFieldIntercept.class) {
                 try {
@@ -55,6 +59,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         this.keyClass = keyClass;
         this.valueClass = valueClass;
         this.selectValueMapByKeys = selectValueMapByKeys;
+        this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
     public Class<KEY> getValueClass() {

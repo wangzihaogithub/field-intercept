@@ -42,7 +42,7 @@ public class ReturnFieldDispatchAop {
     private Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
-    private Predicate<Class> skipFieldClassPredicate = type-> AnnotationUtils.findAnnotation(type, Indexed.class) != null;
+    private Predicate<Class> skipFieldClassPredicate = type -> AnnotationUtils.findAnnotation(type, Indexed.class) != null;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
         this.biConsumerFunction = map::get;
@@ -333,9 +333,11 @@ public class ReturnFieldDispatchAop {
                 }
                 Object routerFieldData = beanHandler.get(routerFieldConsumer.routerField());
                 String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
+                if (Objects.equals(routerFieldDataStr, "null")) {
+                    routerFieldDataStr = null;
+                }
                 for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
-                    String type = fieldConsumer.type();
-                    if (Objects.equals(routerFieldDataStr, type)) {
+                    if (Objects.equals(routerFieldDataStr, fieldConsumer.type())) {
                         groupCollectMap.add(fieldConsumer.value(), new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer));
                         break;
                     }

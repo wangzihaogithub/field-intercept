@@ -18,18 +18,22 @@ import java.util.function.Function;
  */
 public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldIntercept {
     private final Class<T> keyClass;
-    private final ShareThreadMap<T, String> shareThreadMap = new ShareThreadMap<>(5000);
+    private final ShareThreadMap<T, String> shareThreadMap;
     private Function<Collection<T>, Map<T, String>> selectNameMapByKeys;
 
     public KeyNameFieldIntercept() {
-        this(null, null);
+        this(null, null, 0);
     }
 
-    public KeyNameFieldIntercept(Class<T> keyClass) {
-        this(keyClass, null);
+    public KeyNameFieldIntercept(int shareTimeout) {
+        this(null, null, shareTimeout);
     }
 
-    public KeyNameFieldIntercept(Class<T> keyClass, Function<Collection<T>, Map<T, String>> selectNameMapByKeys) {
+    public KeyNameFieldIntercept(Class<T> keyClass, int shareTimeout) {
+        this(keyClass, null, shareTimeout);
+    }
+
+    public KeyNameFieldIntercept(Class<T> keyClass, Function<Collection<T>, Map<T, String>> selectNameMapByKeys, int shareTimeout) {
         if (keyClass == null) {
             if (getClass() != KeyNameFieldIntercept.class) {
                 try {
@@ -44,6 +48,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         }
         this.keyClass = keyClass;
         this.selectNameMapByKeys = selectNameMapByKeys;
+        this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
     public Class<T> getKeyClass() {
