@@ -11,6 +11,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -23,6 +24,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     private final Class<KEY> valueClass;
     private final ShareThreadMap<KEY, VALUE> shareThreadMap;
     private final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
+    private final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
     private ConfigurableEnvironment configurableEnvironment;
 
     public KeyValueFieldIntercept() {
@@ -80,13 +82,28 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         if (valueMap == null || valueMap.isEmpty()) {
             return;
         }
-
         setProperty(cFields, valueMap);
     }
 
     @Override
+    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+        threadMap.computeIfAbsent(id(result), e -> new ArrayList<>())
+                .add(Thread.currentThread());
+    }
+
+    @Override
     public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        shareThreadMap.remove(Thread.currentThread());
+        List<Thread> threadList = threadMap.remove(id(result));
+        if (threadList == null) {
+            return;
+        }
+        for (Thread thread : threadList) {
+            shareThreadMap.remove(thread);
+        }
+    }
+
+    private int id(Object result) {
+        return System.identityHashCode(result);
     }
 
     private Map<KEY, VALUE> cacheSelectValueMapByKeys(List<CField> cFields, Set<KEY> keys) {

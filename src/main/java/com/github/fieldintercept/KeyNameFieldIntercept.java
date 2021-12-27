@@ -9,6 +9,7 @@ import org.springframework.core.annotation.AnnotationUtils;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -19,6 +20,7 @@ import java.util.function.Function;
 public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldIntercept {
     private final Class<T> keyClass;
     private final ShareThreadMap<T, String> shareThreadMap;
+    private final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
     private Function<Collection<T>, Map<T, String>> selectNameMapByKeys;
 
     public KeyNameFieldIntercept() {
@@ -71,8 +73,24 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
     }
 
     @Override
+    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+        threadMap.computeIfAbsent(id(result), e -> new ArrayList<>())
+                .add(Thread.currentThread());
+    }
+
+    @Override
     public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        shareThreadMap.remove(Thread.currentThread());
+        List<Thread> threadList = threadMap.remove(id(result));
+        if (threadList == null) {
+            return;
+        }
+        for (Thread thread : threadList) {
+            shareThreadMap.remove(thread);
+        }
+    }
+
+    private int id(Object result) {
+        return System.identityHashCode(result);
     }
 
     public Map<T, String> cacheSelectNameMapByKeys(List<CField> cFields, Set<T> keys) {
