@@ -22,14 +22,18 @@ import java.util.function.BiConsumer;
  */
 public class FieldInterceptAutoConfiguration implements ImportAware {
     private String[] beanBasePackages = {};
+    private boolean parallelQuery;
 
     @Bean("returnFieldDispatchAop")
     public ReturnFieldDispatchAop returnFieldDispatchAop(ApplicationContext context, ConfigurableEnvironment environment) {
-        ExecutorService taskExecutor = taskExecutor();
-
         ReturnFieldDispatchAop dispatchAop = new ReturnFieldDispatchAop(s -> context.getBean(s, BiConsumer.class));
         dispatchAop.setSkipFieldClassPredicate(type -> context.getBeanNamesForType(type, true, false).length > 0);
-        dispatchAop.setTaskExecutor(taskExecutor::submit);
+        if (parallelQuery) {
+            ExecutorService taskExecutor = taskExecutor();
+            dispatchAop.setTaskExecutor(taskExecutor::submit);
+        } else {
+            dispatchAop.setTaskExecutor(null);
+        }
         dispatchAop.setConfigurableEnvironment(environment);
         for (String beanBasePackage : beanBasePackages) {
             dispatchAop.addBeanPackagePaths(beanBasePackage);
@@ -62,6 +66,7 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
     public void setImportMetadata(AnnotationMetadata metadata) {
         AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(EnableFieldIntercept.class.getName()));
         this.beanBasePackages = attributes.getStringArray("beanBasePackages");
+        this.parallelQuery = attributes.getBoolean("parallelQuery");
     }
 
 }

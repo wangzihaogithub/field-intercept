@@ -25,4 +25,11 @@ public @interface EnableFieldIntercept {
      * @return 包路径. 例如 {"com.ig", "com.xx"}
      */
     String[] beanBasePackages() default {};
+
+    /**
+     * 是否并行查询
+     *
+     * @return true=用线程池并行,false=在调用者线程上串行
+     */
+    boolean parallelQuery() default true;
 }
