@@ -10,12 +10,8 @@ import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.env.ConfigurableEnvironment;
-import org.springframework.stereotype.Indexed;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 
 import java.beans.PropertyDescriptor;
 import java.lang.reflect.*;
@@ -35,6 +31,18 @@ import java.util.stream.Collectors;
 @Aspect
 public class ReturnFieldDispatchAop {
     private final static Logger log = LoggerFactory.getLogger(ReturnFieldDispatchAop.class);
+    private static final Class SPRING_INDEXED_ANNOTATION;
+
+    static {
+        Class springIndexedAnnotation;
+        try {
+            springIndexedAnnotation = Class.forName("org.springframework.stereotype.Indexed");
+        } catch (ClassNotFoundException e) {
+            springIndexedAnnotation = null;
+        }
+        SPRING_INDEXED_ANNOTATION = springIndexedAnnotation;
+    }
+
     /**
      * 实体类包名一样, 就认为是业务实体类
      */
@@ -42,7 +50,7 @@ public class ReturnFieldDispatchAop {
     private Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
-    private Predicate<Class> skipFieldClassPredicate = type -> AnnotationUtils.findAnnotation(type, Indexed.class) != null;
+    private Predicate<Class> skipFieldClassPredicate = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtils.findAnnotation(type, SPRING_INDEXED_ANNOTATION) != null;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
         this.biConsumerFunction = map::get;
@@ -52,7 +60,6 @@ public class ReturnFieldDispatchAop {
         this.biConsumerFunction = biConsumerFunction;
     }
 
-    @Autowired
     public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
         this.configurableEnvironment = configurableEnvironment;
     }
@@ -92,7 +99,7 @@ public class ReturnFieldDispatchAop {
             returning = "result")
     protected void returningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
         log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
-        MultiValueMap<String, CField> groupCollectMap = new LinkedMultiValueMap<>();
+        Map<String, List<CField>> groupCollectMap = new LinkedHashMap<>();
 
         Map<String, FieldIntercept> aopFieldInterceptMap = new LinkedHashMap<>();
         Set<Object> visitObjectIdSet = new HashSet<>();
@@ -137,7 +144,7 @@ public class ReturnFieldDispatchAop {
         }
     }
 
-    protected List<CField> autowired(JoinPoint joinPoint, MultiValueMap<String, CField> groupCollectMap, Map<String, FieldIntercept> aopFieldInterceptMap, int step, Object result) throws ExecutionException, InterruptedException {
+    protected List<CField> autowired(JoinPoint joinPoint, Map<String, List<CField>> groupCollectMap, Map<String, FieldIntercept> aopFieldInterceptMap, int step, Object result) throws ExecutionException, InterruptedException {
         //  通知实现
         List<Runnable> callableList = new ArrayList<>();
         List<CField> allFieldList = new ArrayList<>();
@@ -260,7 +267,7 @@ public class ReturnFieldDispatchAop {
      * @param groupCollectMap 分组收集器
      */
     protected void collectBean(Object bean,
-                               MultiValueMap<String, CField> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
+                               Map<String, List<CField>> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
         if (bean == null || bean instanceof Class) {
             return;
         }
@@ -333,12 +340,11 @@ public class ReturnFieldDispatchAop {
                 }
                 Object routerFieldData = beanHandler.get(routerFieldConsumer.routerField());
                 String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
-                if (Objects.equals(routerFieldDataStr, "null")) {
-                    routerFieldDataStr = null;
-                }
                 for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
-                    if (Objects.equals(routerFieldDataStr, fieldConsumer.type())) {
-                        groupCollectMap.add(fieldConsumer.value(), new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer));
+                    String type = fieldConsumer.type();
+                    if (Objects.equals(routerFieldDataStr, type)) {
+                        groupCollectMap.computeIfAbsent(fieldConsumer.value(), e -> new ArrayList<>())
+                                .add(new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer));
                         break;
                     }
                 }
@@ -352,7 +358,8 @@ public class ReturnFieldDispatchAop {
                 }
                 CField cField = new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer);
 //                    if(!cField.existValue()){
-                groupCollectMap.add(fieldConsumer.value(), cField);
+                groupCollectMap.computeIfAbsent(fieldConsumer.value(), e -> new ArrayList<>())
+                        .add(cField);
                 continue;
 //                    }
             }
@@ -365,7 +372,8 @@ public class ReturnFieldDispatchAop {
                 }
                 CField cField = new CField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer);
 //                    if(!cField.existValue()) {
-                groupCollectMap.add(EnumFieldConsumer.NAME, cField);
+                groupCollectMap.computeIfAbsent(EnumFieldConsumer.NAME, e -> new ArrayList<>())
+                        .add(cField);
                 continue;
 //                    }
             }
