@@ -340,6 +340,9 @@ public class ReturnFieldDispatchAop {
                 }
                 Object routerFieldData = beanHandler.get(routerFieldConsumer.routerField());
                 String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
+                if (Objects.equals(routerFieldDataStr, "null")) {
+                    routerFieldDataStr = null;
+                }
                 for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
                     String type = fieldConsumer.type();
                     if (Objects.equals(routerFieldDataStr, type)) {

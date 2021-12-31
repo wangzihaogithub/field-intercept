@@ -20,12 +20,12 @@ import java.util.function.Function;
  * @author acer01
  */
 public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
-    private final Class<KEY> keyClass;
-    private final Class<KEY> valueClass;
-    private final ShareThreadMap<KEY, VALUE> shareThreadMap;
-    private final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
-    private final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
-    private ConfigurableEnvironment configurableEnvironment;
+    protected final Class<KEY> keyClass;
+    protected final Class<KEY> valueClass;
+    protected final ShareThreadMap<KEY, VALUE> shareThreadMap;
+    protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
+    protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
+    protected ConfigurableEnvironment configurableEnvironment;
 
     public KeyValueFieldIntercept() {
         this(null, null, 0);

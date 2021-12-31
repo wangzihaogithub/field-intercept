@@ -18,10 +18,10 @@ import java.util.function.Function;
  * @author acer01
  */
 public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldIntercept {
-    private final Class<T> keyClass;
-    private final ShareThreadMap<T, String> shareThreadMap;
-    private final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
-    private Function<Collection<T>, Map<T, String>> selectNameMapByKeys;
+    protected final Class<T> keyClass;
+    protected final ShareThreadMap<T, Object> shareThreadMap;
+    protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
+    protected Function<Collection<T>, Map<T, ?>> selectNameMapByKeys;
 
     public KeyNameFieldIntercept() {
         this(null, null, 0);
@@ -35,7 +35,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         this(keyClass, null, shareTimeout);
     }
 
-    public KeyNameFieldIntercept(Class<T> keyClass, Function<Collection<T>, Map<T, String>> selectNameMapByKeys, int shareTimeout) {
+    public KeyNameFieldIntercept(Class<T> keyClass, Function<Collection<T>, Map<T, ?>> selectNameMapByKeys, int shareTimeout) {
         if (keyClass == null) {
             if (getClass() != KeyNameFieldIntercept.class) {
                 try {
@@ -57,6 +57,10 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         return keyClass;
     }
 
+    public void setSelectNameMapByKeys(Function<Collection<T>, Map<T, ?>> selectNameMapByKeys) {
+        this.selectNameMapByKeys = selectNameMapByKeys;
+    }
+
     @Override
     public final void accept(JoinPoint joinPoint, List<CField> cFields) {
         Set<T> keyDataList = getKeyDataByFields(cFields);
@@ -64,7 +68,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
             return;
         }
 
-        Map<T, String> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
+        Map<T, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
         if (nameMap == null || nameMap.isEmpty()) {
             return;
         }
@@ -93,10 +97,10 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         return System.identityHashCode(result);
     }
 
-    public Map<T, String> cacheSelectNameMapByKeys(List<CField> cFields, Set<T> keys) {
-        Map<T, String> valueMap = new LinkedHashMap<>();
+    public Map<T, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<T> keys) {
+        Map<T, Object> valueMap = new LinkedHashMap<>();
         for (T key : keys) {
-            String value = shareThreadMap.get(key);
+            Object value = shareThreadMap.get(key);
             if (value != null) {
                 valueMap.put(key, value);
             }
@@ -111,11 +115,11 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         remainingCacheMissKeys.removeAll(valueMap.keySet());
 
         // 查库与缓存数据合并
-        Map<T, String> loadValueMap = selectNameMapByKeys(cFields, remainingCacheMissKeys);
+        Map<T, ?> loadValueMap = selectObjectMapByKeys(cFields, remainingCacheMissKeys);
         valueMap.putAll(loadValueMap);
 
         // 放入缓存
-        shareThreadMap.putAll(loadValueMap);
+        shareThreadMap.putAll((Map<T, Object>) loadValueMap);
         return valueMap;
     }
 
@@ -131,16 +135,32 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
 
     public Map<T, String> selectNameMapByKeys(List<CField> cFields, Collection<T> keys) {
         Map<T, String> nameMap = selectNameMapByKeys(keys);
+        return nameMap;
+    }
+
+    public Map<T, ?> selectObjectMapByKeys(List<CField> cFields, Collection<T> keys) {
+        Map<T, ?> nameMap = selectNameMapByKeys(cFields, keys);
         if (nameMap == null) {
-            if (selectNameMapByKeys == null) {
-                throw new UnsupportedOperationException("您的方法未实现完全");
-            }
+            nameMap = selectNameListMapByKeys(cFields, keys);
+        }
+        if (nameMap == null && selectNameMapByKeys != null) {
             nameMap = selectNameMapByKeys.apply(keys);
+        }
+        if (nameMap == null) {
+            throw new UnsupportedOperationException("您的方法未实现完全");
         }
         return nameMap;
     }
 
-    protected T[] rewriteKeyDataIfNeed(T key, CField cField, Map<T, String> nameMap) {
+    public Map<T, Collection<String>> selectNameListMapByKeys(List<CField> cFields, Collection<T> keys) {
+        return selectNameListMapByKeys(keys);
+    }
+
+    public Map<T, Collection<String>> selectNameListMapByKeys(Collection<T> keys) {
+        return null;
+    }
+
+    protected T[] rewriteKeyDataIfNeed(T key, CField cField, Map<T, Object> nameMap) {
         T[] arr = (T[]) Array.newInstance(key.getClass(), 1);
         arr[0] = key;
         return arr;
@@ -243,7 +263,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         return keyDataList;
     }
 
-    protected void setProperty(List<CField> cFieldList, Map<T, String> nameMap) {
+    protected void setProperty(List<CField> cFieldList, Map<T, Object> nameMap) {
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
             Class<?> fieldType = cField.getField().getType();
@@ -265,13 +285,21 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
                 if (List.class.isAssignableFrom(fieldType)) {
                     List list = new ArrayList(1);
                     if (value != null) {
-                        list.add(value);
+                        if (value instanceof Collection) {
+                            list.addAll((Collection) value);
+                        } else {
+                            list.add(value);
+                        }
                     }
                     value = list;
                 } else if (Set.class.isAssignableFrom(fieldType)) {
                     Set set = new LinkedHashSet(1);
                     if (value != null) {
-                        set.add(value);
+                        if (value instanceof Collection) {
+                            set.addAll((Collection) value);
+                        } else {
+                            set.add(value);
+                        }
                     }
                     value = set;
                 } else if (fieldType.isArray()) {
@@ -301,20 +329,34 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
                     i++;
                     T[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, nameMap);
                     setKeyData(cField, rewriteKeyDataList);
-                    String eachValue = choseValue(nameMap, rewriteKeyDataList);
+                    Object eachValue = choseValue(nameMap, rewriteKeyDataList);
                     if (eachValue == null) {
                         continue;
                     }
                     if (list != null) {
-                        list.add(eachValue);
+                        if (eachValue instanceof Collection) {
+                            list.addAll((Collection) eachValue);
+                        } else {
+                            list.add(eachValue.toString());
+                        }
                     } else if (set != null) {
-                        set.add(eachValue);
+                        if (eachValue instanceof Collection) {
+                            set.addAll((Collection) eachValue);
+                        } else {
+                            set.add(eachValue.toString());
+                        }
                     } else if (array != null) {
                         Array.set(array, i, eachValue);
                     } else if (joiner != null && !isNull(eachValue)) {
-                        joiner.add(eachValue);
+                        if (eachValue instanceof Collection) {
+                            for (Object e : (Collection) eachValue) {
+                                joiner.add(Objects.toString(e, null));
+                            }
+                        } else {
+                            joiner.add(eachValue.toString());
+                        }
                     } else {
-                        value = eachValue;
+                        value = Objects.toString(eachValue, null);
                         break;
                     }
                 }
@@ -345,12 +387,12 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
         return TypeUtil.cast(object, type);
     }
 
-    protected String choseValue(Map<T, String> nameMap, T[] keyDataList) {
+    protected Object choseValue(Map<T, Object> nameMap, T[] keyDataList) {
         if (keyDataList == null) {
             return null;
         }
         for (T nameMapKey : keyDataList) {
-            String name = nameMap.get(nameMapKey);
+            Object name = nameMap.get(nameMapKey);
             if (name != null) {
                 return name;
             }
