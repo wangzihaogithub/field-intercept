@@ -1,18 +1,3 @@
-/*
- * Copyright 1999-2017 Alibaba Group.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.github.fieldintercept.util;
 
 import java.lang.reflect.*;
@@ -22,9 +7,78 @@ import java.sql.Timestamp;
 import java.util.*;
 
 /**
- * @author wenshao[szujobs@hotmail.com]
+ * 类型工具类
+ *
+ * @author acer01
  */
 public class TypeUtil {
+
+    public static boolean isAssignableFrom(Type response, Type request) {
+        if (request == null || response == null) {
+            return false;
+        } else if (request == Object.class || response == Object.class) {
+            return false;
+        } else if (request instanceof Class && response instanceof Class) {
+            return ((Class) request).isAssignableFrom((Class<?>) response)
+                    || ((Class<?>) response).isAssignableFrom((Class<?>) request);
+        } else if (response instanceof ParameterizedType) {
+            return isAssignableFrom(((ParameterizedType) response).getRawType(), request);
+        } else if (response instanceof TypeVariable) {
+            return false;
+        } else if (request instanceof ParameterizedType) {
+            return isAssignableFrom(response, ((ParameterizedType) request).getRawType());
+        } else if (request instanceof TypeVariable) {
+            return false;
+        } else if (request instanceof WildcardType) {
+            Type[] upperBounds = ((WildcardType) request).getUpperBounds();
+            if (upperBounds.length > 0) {
+                return isAssignableFrom(response, upperBounds[0]);
+            } else {
+                return false;
+            }
+        } else if (response instanceof WildcardType) {
+            Type[] upperBounds = ((WildcardType) response).getUpperBounds();
+            if (upperBounds.length > 0) {
+                return isAssignableFrom(request, upperBounds[0]);
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    public static Type findGenericSuperType(Class clazz) {
+        Type genericSuperclass = clazz;
+        while (genericSuperclass != null && genericSuperclass != Object.class) {
+            if (genericSuperclass instanceof ParameterizedType) {
+                Type[] actualTypeArguments = ((ParameterizedType) genericSuperclass).getActualTypeArguments();
+                if (actualTypeArguments != null && actualTypeArguments.length > 0) {
+                    genericSuperclass = actualTypeArguments[0];
+                    break;
+                } else {
+                    genericSuperclass = ((ParameterizedType) genericSuperclass).getRawType();
+                }
+            } else if (genericSuperclass == clazz) {
+                genericSuperclass = ((Class) genericSuperclass).getGenericSuperclass();
+            } else if (genericSuperclass instanceof Class) {
+                genericSuperclass = ((Class) genericSuperclass).getGenericSuperclass();
+            } else if (genericSuperclass instanceof WildcardType) {
+                Type[] upperBounds = ((WildcardType) genericSuperclass).getUpperBounds();
+                Type[] lowerBounds = ((WildcardType) genericSuperclass).getLowerBounds();
+                if (upperBounds.length > 0) {
+                    genericSuperclass = upperBounds[0];
+                } else if (lowerBounds.length > 0) {
+                    genericSuperclass = lowerBounds[0];
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        return genericSuperclass;
+    }
 
     /**
      * 寻找声明的泛型
@@ -102,9 +156,63 @@ public class TypeUtil {
                 "cannot determine the type of the type parameter '" + typeParamName + "': " + type);
     }
 
+    /**
+     * 获取泛型
+     *
+     * @param field 字段
+     * @return 泛型
+     */
+    public static Class<?> getGenericType(Field field) {
+        if (field == null) {
+            return null;
+        }
+        if (field.getType().isArray()) {
+            return field.getType().getComponentType();
+        }
+
+        Type genericType = field.getGenericType();
+        if (!(genericType instanceof ParameterizedType)) {
+            return null;
+        }
+
+        Type[] actualTypeArguments = ((ParameterizedType) genericType).getActualTypeArguments();
+        if (actualTypeArguments.length != 1) {
+            return null;
+        }
+
+        Type actualType = actualTypeArguments[0];
+        if (actualType instanceof WildcardType) {
+            Type[] upperBounds = ((WildcardType) actualType).getUpperBounds();
+            if (upperBounds.length > 0 && upperBounds[0] instanceof Class) {
+                return (Class) upperBounds[0];
+            }
+        }
+
+        if (actualType instanceof Class) {
+            return (Class) actualType;
+        }
+        return null;
+    }
+
+    public static <T> T castIfBeanCast(Object object, Class<T> clazz) {
+        try {
+            return TypeUtil.cast(object, clazz);
+        } catch (Exception e) {
+            try {
+                return BeanUtil.transform(object, clazz);
+            } catch (Exception e1) {
+                e1.addSuppressed(e);
+                throw e1;
+            }
+        }
+    }
+
     public static String castToString(Object value) {
         if (value == null) {
             return null;
+        }
+        if (value instanceof BigDecimal) {
+            return ((BigDecimal) value).stripTrailingZeros().toPlainString();
         }
         return value.toString();
     }
@@ -247,10 +355,6 @@ public class TypeUtil {
                 return null;
             }
 
-            if (strVal.indexOf(',') != 0) {
-                strVal = strVal.replaceAll(",", "");
-            }
-
             return Float.parseFloat(strVal);
         }
 
@@ -272,10 +376,6 @@ public class TypeUtil {
                     || "null".equals(strVal) //
                     || "NULL".equals(strVal)) {
                 return null;
-            }
-
-            if (strVal.indexOf(',') != 0) {
-                strVal = strVal.replaceAll(",", "");
             }
 
             return Double.parseDouble(strVal);
@@ -508,26 +608,26 @@ public class TypeUtil {
 
     }
 
-    public static java.sql.Timestamp castToTimestamp(Object value) {
+    public static Timestamp castToTimestamp(Object value) {
         if (value == null) {
             return null;
         }
 
         if (value instanceof Calendar) {
-            return new java.sql.Timestamp(((Calendar) value).getTimeInMillis());
+            return new Timestamp(((Calendar) value).getTimeInMillis());
         }
 
-        if (value instanceof java.sql.Timestamp) {
-            return (java.sql.Timestamp) value;
+        if (value instanceof Timestamp) {
+            return (Timestamp) value;
         }
 
         if (value instanceof Date) {
-            return new java.sql.Timestamp(((Date) value).getTime());
+            return new Timestamp(((Date) value).getTime());
         }
 
         if (value instanceof Number) {
             long longValue = ((Number) value).longValue();
-            return new java.sql.Timestamp(longValue);
+            return new Timestamp(longValue);
         }
 
         if (value instanceof String) {
@@ -579,10 +679,6 @@ public class TypeUtil {
                 return null;
             }
 
-            if (strVal.indexOf(',') != 0) {
-                strVal = strVal.replaceAll(",", "");
-            }
-
             try {
                 return Long.parseLong(strVal);
             } catch (NumberFormatException ex) {
@@ -612,10 +708,6 @@ public class TypeUtil {
                     || "null".equals(strVal) //
                     || "NULL".equals(strVal)) {
                 return null;
-            }
-
-            if (strVal.indexOf(',') != 0) {
-                strVal = strVal.replaceAll(",", "");
             }
 
             try {
@@ -689,6 +781,14 @@ public class TypeUtil {
         throw new IllegalArgumentException("can not cast to boolean, value : " + value);
     }
 
+    /**
+     * 转换类型
+     *
+     * @param obj   需要转换的对象
+     * @param clazz 转换至类型
+     * @param <T>   类型
+     * @return 转换后的对象
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static <T> T cast(Object obj, Class<T> clazz) {
         if (obj == null) {
@@ -791,7 +891,7 @@ public class TypeUtil {
             return (T) castToSqlDate(obj);
         }
 
-        if (clazz == java.sql.Timestamp.class) {
+        if (clazz == Timestamp.class) {
             return (T) castToTimestamp(obj);
         }
 
@@ -832,8 +932,8 @@ public class TypeUtil {
                 return (T) toLocale(strVal);
             }
         }
-        return BeanUtil.transform(obj,clazz);
-//        throw new IllegalArgumentException("can not cast to : " + clazz.getName());
+//        return BeanUtil.transform(obj, clazz);
+        throw new IllegalArgumentException("can not cast to : " + clazz.getName());
     }
 
     public static Locale toLocale(String strVal) {
@@ -859,7 +959,12 @@ public class TypeUtil {
                     return null;
                 }
 
-                return (T) java.lang.Enum.valueOf((Class<? extends java.lang.Enum>) clazz, name);
+                char charAt0 = name.charAt(0);
+                if (charAt0 >= '0' && charAt0 <= '9') {
+                    obj = Integer.valueOf(name);
+                } else {
+                    return (T) Enum.valueOf((Class<? extends Enum>) clazz, name);
+                }
             }
 
             if (obj instanceof Number) {

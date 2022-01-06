@@ -12,6 +12,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -209,7 +210,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 if (isNull(e)) {
                     continue;
                 }
-                KEY key = cast(e, keyClass, null);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new LinkedHashSet<>();
@@ -222,7 +223,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 if (isNull(e)) {
                     continue;
                 }
-                KEY key = cast(e, keyClass, null);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new LinkedHashSet<>();
@@ -235,7 +236,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 if (isNull(e)) {
                     continue;
                 }
-                KEY key = cast(e, keyClass, null);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new LinkedHashSet<>();
@@ -245,7 +246,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
             }
         } else {
             try {
-                KEY key = cast(keyData, keyClass, null);
+                KEY key = cast(keyData, keyClass);
                 if (key != null) {
                     keyDataList = Collections.singletonList(key);
                 }
@@ -254,6 +255,29 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
             }
         }
         return keyDataList;
+    }
+
+    protected <T> void addList(CField cField, Object value, Class<T> genericType, Consumer<T> list) {
+        if (value == null) {
+            return;
+        }
+        if (value instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
+            for (Object o : (Collection) value) {
+                addList(cField, o, genericType, list);
+            }
+        } else {
+            String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+            if (resolveValue != null) {
+                value = resolveValue;
+            }
+            if (cField.getType() != String.class && value instanceof String && ((String) value).contains(",")) {
+                for (String s : ((String) value).split(",")) {
+                    list.accept(cast(s, genericType));
+                }
+            } else {
+                list.accept(cast(value, genericType));
+            }
+        }
     }
 
     protected void setProperty(List<CField> cFieldList, Map<KEY, VALUE> valueMap) {
@@ -276,33 +300,25 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(valueMap, rewriteKeyDataList);
                 if (List.class.isAssignableFrom(fieldType)) {
-                    List list = new ArrayList(1);
-                    if (value instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
-                        for (Object o : (Collection) value) {
-                            list.add(cast(o, genericType, cField));
-                        }
-                    } else if (value != null) {
-                        list.add(cast(value, genericType, cField));
-                    }
+                    Collection list = new ArrayList<>(1);
+                    addList(cField, value, genericType, list::add);
                     value = (VALUE) list;
                 } else if (Set.class.isAssignableFrom(fieldType)) {
-                    Set set = new LinkedHashSet(1);
-                    if (value instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
-                        for (Object o : (Collection) value) {
-                            set.add(cast(o, genericType, cField));
-                        }
-                    } else if (value != null) {
-                        set.add(cast(value, genericType, cField));
-                    }
-                    value = (VALUE) set;
+                    Collection list = new LinkedHashSet<>(1);
+                    addList(cField, value, genericType, list::add);
+                    value = (VALUE) list;
                 } else if (fieldType.isArray()) {
                     Object array = Array.newInstance(genericType, 1);
-                    Array.set(array, 0, cast(value, genericType, cField));
+                    String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+                    if (resolveValue != null) {
+                        value = (VALUE) cast(resolveValue, genericType);
+                    }
+                    Array.set(array, 0, value);
                     value = (VALUE) array;
                 }
             } else {
-                List<VALUE> list = null;
-                Set<VALUE> set = null;
+                List list = null;
+                Set set = null;
                 Object array = null;
                 if (List.class.isAssignableFrom(fieldType)) {
                     list = new ArrayList<>(10);
@@ -327,34 +343,17 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                         continue;
                     }
                     if (list != null) {
-                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
-                            for (Object o : (Collection) eachValue) {
-                                list.add((VALUE) cast(o, genericType, cField));
-                            }
-                        } else {
-                            eachValue = (VALUE) cast(eachValue, genericType, cField);
-                            list.add(eachValue);
-                        }
+                        addList(cField, eachValue, genericType, list::add);
                     } else if (set != null) {
-                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
-                            for (Object o : (Collection) eachValue) {
-                                set.add((VALUE) cast(o, genericType, cField));
-                            }
-                        } else {
-                            eachValue = (VALUE) cast(eachValue, genericType, cField);
-                            set.add(eachValue);
-                        }
+                        addList(cField, eachValue, genericType, set::add);
                     } else if (array != null) {
-                        eachValue = (VALUE) cast(eachValue, genericType, cField);
+                        String resolveValue = cField.resolvePlaceholders(configurableEnvironment, eachValue);
+                        if (resolveValue != null) {
+                            eachValue = (VALUE) cast(resolveValue, genericType);
+                        }
                         Array.set(array, i, eachValue);
                     } else if (joiner != null && !isNull(eachValue)) {
-                        if (eachValue instanceof Collection && !Collection.class.isAssignableFrom(genericType)) {
-                            for (Object o : (Collection) eachValue) {
-                                joiner.add(Objects.toString(o, null));
-                            }
-                        } else {
-                            joiner.add(Objects.toString(eachValue, null));
-                        }
+                        addList(cField, eachValue, String.class, joiner::add);
                     } else {
                         value = eachValue;
                         break;
@@ -362,7 +361,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 }
             }
 
-            if (joiner != null) {
+            if (joiner != null && joiner.length() > 0) {
                 value = (VALUE) joiner.toString();
             }
             if (value != null) {
@@ -394,15 +393,41 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         }
     }
 
-    protected <TYPE> TYPE cast(Object object, Class<TYPE> type, CField cField) {
-        Object value = object;
-        if (cField != null) {
-            String resolveValue = cField.resolvePlaceholders(configurableEnvironment, object);
-            if (resolveValue != null) {
-                value = resolveValue;
+    protected <TYPE> TYPE cast(Object object, Class<TYPE> type) {
+        if (Enum.class.isAssignableFrom(type)) {
+            if (type.isEnum()) {
+                return (TYPE) castEnum(object, (Class) type);
+            } else {
+                throw new IllegalStateException("cast need " + type + " extends java.lang.Enum");
             }
         }
-        return TypeUtil.cast(value, type);
+        return TypeUtil.castIfBeanCast(object, type);
+    }
+
+    protected <TYPE extends Enum> TYPE castEnum(Object object, Class<TYPE> type) {
+        Collection<Enum> enumSet = (Collection) EnumSet.allOf((Class) type);
+        if (enumSet.isEmpty()) {
+            return null;
+        }
+        Class<?> keyClass = enumSet.stream()
+                .map(Enum::getKey)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .map(Object::getClass)
+                .orElse(null);
+        Object keyCast;
+        if (keyClass == null) {
+            keyCast = null;
+        } else {
+            keyCast = TypeUtil.castIfBeanCast(object, keyClass);
+        }
+        for (Enum o : enumSet) {
+            Object key = o.getKey();
+            if (Objects.equals(key, keyCast)) {
+                return (TYPE) o;
+            }
+        }
+        return null;
     }
 
     protected VALUE choseValue(Map<KEY, VALUE> valueMap, KEY[] keyDataList) {
