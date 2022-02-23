@@ -153,12 +153,14 @@ public class ShareThreadMap<KEY, VALUE> {
 
         public void putAll(Map<KEY, VALUE> map, int timeout) {
             for (Map.Entry<KEY, VALUE> entry : map.entrySet()) {
-                cacheMap.put(entry.getKey(), new Value<>(entry.getValue(), timeout));
+                Value<VALUE> value = new Value<>(entry.getValue(), timeout);
+                cacheMap.put(entry.getKey(), value);
             }
         }
 
         public VALUE put(KEY key, VALUE value, int timeout) {
-            Value<VALUE> old = cacheMap.put(key, new Value<>(value, timeout));
+            Value<VALUE> newValue = new Value<>(value, timeout);
+            Value<VALUE> old = cacheMap.put(key, newValue);
             return old != null ? old.data : null;
         }
 

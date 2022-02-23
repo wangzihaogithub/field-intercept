@@ -44,6 +44,7 @@ public class CField {
      */
     private Boolean existPlaceholder;
     private List<String> placeholders;
+    private Class genericType;
 
     public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation) {
         this.consumerName = consumerName;
@@ -51,6 +52,7 @@ public class CField {
         this.bean = beanHandler.getBean();
         this.field = field;
         this.annotation = annotation;
+        this.genericType = BeanUtil.getGenericType(field);
     }
 
     private static List<String> getPlaceholderAttributes(Annotation annotation, String[] attributeNames) {
@@ -112,7 +114,7 @@ public class CField {
     }
 
     public Class getGenericType() {
-        return BeanUtil.getGenericType(field);
+        return genericType;
     }
 
     public boolean existPlaceholder() {

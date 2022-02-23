@@ -167,7 +167,10 @@ public class ReturnFieldDispatchAop {
                     fieldIntercept.begin(joinPoint, fieldList, result);
                 }
             }
-
+            if (consumer == null) {
+                log.warn("autowired consumer '{}' not found", key);
+                continue;
+            }
             FieldIntercept finalFieldIntercept = fieldIntercept;
             callableList.add(() -> {
                 try {
@@ -343,13 +346,20 @@ public class ReturnFieldDispatchAop {
                 if (Objects.equals(routerFieldDataStr, "null")) {
                     routerFieldDataStr = null;
                 }
+                FieldConsumer choseFieldConsumer = null;
                 for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
                     String type = fieldConsumer.type();
                     if (Objects.equals(routerFieldDataStr, type)) {
-                        groupCollectMap.computeIfAbsent(fieldConsumer.value(), e -> new ArrayList<>())
-                                .add(new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer));
+                        choseFieldConsumer = fieldConsumer;
                         break;
                     }
+                }
+                if (choseFieldConsumer == null) {
+                    choseFieldConsumer = routerFieldConsumer.defaultElse();
+                }
+                if (choseFieldConsumer.value().length() > 0) {
+                    groupCollectMap.computeIfAbsent(choseFieldConsumer.value(), e -> new ArrayList<>())
+                            .add(new CField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer));
                 }
             }
 

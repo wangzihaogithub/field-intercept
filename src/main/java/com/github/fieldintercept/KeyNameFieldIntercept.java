@@ -384,7 +384,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
     }
 
     protected <TYPE> TYPE cast(Object object, Class<TYPE> type) {
-        return TypeUtil.cast(object, type);
+        return TypeUtil.castIfBeanCast(object, type);
     }
 
     protected Object choseValue(Map<T, Object> nameMap, T[] keyDataList) {

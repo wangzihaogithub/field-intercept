@@ -5,7 +5,6 @@ import org.springframework.core.annotation.AnnotationUtils;
 import java.lang.annotation.Annotation;
 import java.util.*;
 
-//@Component(EnumFieldConsumer.NAME)
 public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
 
     private static String getGroup(Class<? extends java.lang.Enum> type) {

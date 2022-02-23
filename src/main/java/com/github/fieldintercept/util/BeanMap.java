@@ -37,7 +37,6 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     public BeanMap(Map map) {
         this();
         putAll(map);
-
     }
 
     public BeanMap(Object bean) {
@@ -458,7 +457,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     }
 
     private Object cast(Object value, Class type) {
-        return TypeUtil.cast(value, type);
+        return TypeUtil.castIfBeanCast(value, type);
     }
 
     public boolean set(String key, Object value) {

@@ -8,7 +8,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAccessor;
 import java.util.*;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * 数据转换(默认值,类型) + 属性操作 = BeanUtils
@@ -63,38 +62,6 @@ public class BeanUtil {
         UNSAFE_ALLOCATE_INSTANCE_METHOD = unsafeAllocateInstanceMethod;
     }
 
-    /**
-     * 类型转换
-     *
-     * @param source     来源
-     * @param returnType 返回类型
-     * @param <T>        元素类型
-     * @param <R>        返回元素类型
-     * @return 返回元素类型
-     */
-    public static <T, R> List<R> transform(Collection<T> source, Class<R> returnType) {
-        if (source == null) {
-            return (List<R>) source;
-        }
-        IdentityHashMap<Object, Object> context = new IdentityHashMap<>();
-        return source.stream()
-                .map(o -> transform(o, returnType, context))
-                .collect(Collectors.toList());
-    }
-
-    public static <R> R clone(R source) {
-        if (source == null) {
-            return null;
-        }
-        R clone = null;
-        try {
-            clone = (R) source.getClass().getMethod("clone").invoke(source);
-        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-            e.printStackTrace();
-        }
-        return clone;
-    }
-
     public static boolean isBaseType(Class type) {
         if (type == null) {
             return true;
@@ -125,15 +92,6 @@ public class BeanUtil {
         }
         Class type = source instanceof Class ? (Class) source : source.getClass();
         return isBaseType(type);
-    }
-
-    public static <R> R deepCopyTo(Object source, R target) {
-        Class targetType = target.getClass();
-        if (isMap(targetType)) {
-            return (R) transformBeanToMap(source, (Map) target, (Class<Map>) targetType, EMPTY_IDENTITY_HASH_MAP);
-        } else {
-            return transformBeanToBean(source, target, (Class<R>) targetType, EMPTY_IDENTITY_HASH_MAP);
-        }
     }
 
     private static <R> R transformBean(Object source, Class<R> returnType, IdentityHashMap context) {
@@ -373,10 +331,10 @@ public class BeanUtil {
      * class不同也支持拷贝
      * 支持循环依赖
      *
-     * @param source     来源
-     * @param returnType 返回类型
-     * @param <R>        返回类型
-     * @return 返回
+     * @param source
+     * @param returnType
+     * @param <R>
+     * @return
      */
     public static <R> R transform(Object source, Class<R> returnType) {
         if (source == null) {
@@ -557,7 +515,8 @@ public class BeanUtil {
         });
 
         if (constructor == null) {
-            if (UNSAFE != null && !Modifier.isAbstract(type.getModifiers())) {
+            boolean isJavaPackage = Optional.ofNullable(type.getPackage()).map(Package::getName).map(o -> o.startsWith("java.")).orElse(true);
+            if (UNSAFE != null && !Modifier.isAbstract(type.getModifiers()) && !isJavaPackage) {
                 try {
                     return (T) UNSAFE_ALLOCATE_INSTANCE_METHOD.invoke(UNSAFE, type);
                 } catch (Throwable ignored) {
@@ -570,7 +529,8 @@ public class BeanUtil {
         try {
             return (T) constructor.newInstance(EMPTY_OBJECT_ARRAY);
         } catch (Exception e) {
-            if (UNSAFE != null && !Modifier.isAbstract(type.getModifiers())) {
+            boolean isJavaPackage = Optional.ofNullable(type.getPackage()).map(Package::getName).map(o -> o.startsWith("java.")).orElse(true);
+            if (UNSAFE != null && !Modifier.isAbstract(type.getModifiers()) && !isJavaPackage) {
                 try {
                     return (T) UNSAFE_ALLOCATE_INSTANCE_METHOD.invoke(UNSAFE, type);
                 } catch (Throwable ignored) {
@@ -581,198 +541,11 @@ public class BeanUtil {
     }
 
     /**
-     * 复制数据，会覆盖
-     *
-     * @param copySource 来源类型
-     * @param copyTarget 目标类型
-     * @param <T>        类型
-     */
-    public static <T> void copyToIfModify(T copySource, T copyTarget) {
-        copyToIfModify(copySource, copyTarget, false);
-    }
-
-    public static <T> void copyToIfModify(T copySource, T copyTarget, boolean trim) {
-        if (copySource == null || copyTarget == null) {
-            return;
-        }
-        BeanMap targetBean = new BeanMap(copyTarget);
-        for (Map.Entry<String, Object> entry : new BeanMap(copySource).entrySet()) {
-            Object value = entry.getValue();
-            if (value != null) {
-                targetBean.set(entry.getKey(), value);
-            }
-        }
-        if (trim) {
-            for (Map.Entry<String, Object> entry : targetBean.entrySet()) {
-                Object value = entry.getValue();
-                if (value instanceof String) {
-                    entry.setValue(((String) value).trim());
-                }
-            }
-        }
-    }
-
-    /**
-     * 填充数据，不会覆盖
-     *
-     * @param copySource 来源
-     * @param copyTarget 目标
-     * @param <T>        类型
-     */
-    public static <T> void fillIfNull(T copySource, T copyTarget) {
-        if (copySource == null || copyTarget == null) {
-            return;
-        }
-        BeanMap sourceBean = new BeanMap(copySource);
-        BeanMap targetBean = new BeanMap(copyTarget);
-        for (Map.Entry<String, Object> entry : targetBean.entrySet()) {
-            String key = entry.getKey();
-            Object targetValue = entry.getValue();
-            Object sourceValue = sourceBean.get(key);
-            if (targetValue == null && sourceValue != null) {
-                targetBean.set(key, sourceValue);
-            }
-        }
-    }
-
-    public static <T> void copyTo(T copySource, T copyTarget) {
-        copyTo(copySource, copyTarget, false);
-    }
-
-    public static <T> void copyTo(T copySource, T copyTarget, boolean trim) {
-        if (copySource == null || copyTarget == null) {
-            return;
-        }
-        BeanMap targetBean = new BeanMap(copyTarget);
-        for (Map.Entry<String, Object> entry : new BeanMap(copySource).entrySet()) {
-            targetBean.set(entry.getKey(), entry.getValue());
-        }
-        if (trim) {
-            for (Map.Entry<String, Object> entry : targetBean.entrySet()) {
-                Object value = entry.getValue();
-                if (value instanceof String) {
-                    entry.setValue(((String) value).trim());
-                }
-            }
-        }
-    }
-
-    public static String[] getBeanPackages() {
-        Set<String> list = new LinkedHashSet<>();
-        int packPreLength = 2;
-        String[] packagePaths = BeanUtil.class.getPackage().getName().split("[.]");
-        if (packagePaths.length >= packPreLength) {
-            list.add(String.join(".", Arrays.asList(packagePaths).subList(0, packPreLength)));
-        }
-        return list.toArray(new String[0]);
-    }
-
-    public static boolean equals(Object left, Object right) {
-        boolean equals = Objects.equals(left, right);
-        if (equals) {
-            return true;
-        }
-        if (left instanceof String || right instanceof String) {
-            return Objects.equals(Objects.toString(left, ""), Objects.toString(right, ""));
-        }
-        if (left == null || right == null) {
-            return false;
-        }
-
-        Class<?> leftClass = left.getClass();
-        Class<?> rightClass = right.getClass();
-        // 用于 BigDecimal 0.0 和0 的比较， 或日期的比较
-        if (left instanceof Comparable && right instanceof Comparable) {
-            if (leftClass.isAssignableFrom(rightClass)) {
-                return ((Comparable) left).compareTo(right) == 0;
-            } else if (rightClass.isAssignableFrom(leftClass)) {
-                return ((Comparable) right).compareTo(left) == 0;
-            }
-        }
-        return false;
-    }
-
-    private static Map wrapMap(Object beanOrMap) {
-        if (beanOrMap instanceof Map) {
-            return (Map) beanOrMap;
-        }
-        return new BeanMap(beanOrMap);
-    }
-
-    public static Collection wrapCollection(Object iterableOrArray) {
-        if (iterableOrArray instanceof Collection) {
-            return (Collection) iterableOrArray;
-        }
-        if (iterableOrArray.getClass().isArray()) {
-            ArrayList<Object> objects = new ArrayList<>();
-            int length = Array.getLength(iterableOrArray);
-            for (int i = 0; i < length; i++) {
-                Object o = Array.get(iterableOrArray, i);
-                objects.add(o);
-            }
-            return objects;
-        }
-        List list = new ArrayList();
-        if (iterableOrArray instanceof Iterable) {
-            Iterator iterator = ((Iterable) iterableOrArray).iterator();
-            while (iterator.hasNext()) {
-                list.add(iterator.next());
-            }
-            return list;
-        }
-        throw new IllegalStateException();
-    }
-
-    public static Iterable wrapIterable(Object iterableOrArray) {
-        if (iterableOrArray instanceof Iterable) {
-            return (Iterable) iterableOrArray;
-        }
-        if (iterableOrArray.getClass().isArray()) {
-            ArrayList<Object> objects = new ArrayList<>();
-            int length = Array.getLength(iterableOrArray);
-            for (int i = 0; i < length; i++) {
-                Object o = Array.get(iterableOrArray, i);
-                objects.add(o);
-            }
-            return objects;
-        }
-        throw new IllegalStateException();
-    }
-
-    public static boolean isIterableOrArray(Class type) {
-        if (Iterable.class.isAssignableFrom(type)) {
-            return true;
-        }
-        return type.isArray();
-    }
-
-    public static boolean isBeanOrMap(Class type) {
-        return isBeanOrMap(type, getBeanPackages());
-    }
-
-    public static boolean isBeanOrMap(Class type, String[] beanPackages) {
-        if (Map.class.isAssignableFrom(type)) {
-            return true;
-        }
-        Package typePackage = type.getPackage();
-        if (typePackage == null) {
-            return false;
-        }
-        String name = typePackage.getName();
-        for (String beanPackage : beanPackages) {
-            if (name.startsWith(beanPackage)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * 1. 解决循环引用
      * 2. 保留相同引用关系
      *
-     * @param <K> k
-     * @param <V> v
+     * @param <K>
+     * @param <V>
      */
     public static class IdentityHashMap<K, V> {
         private final HashMap<Integer, V> source = new HashMap<>();

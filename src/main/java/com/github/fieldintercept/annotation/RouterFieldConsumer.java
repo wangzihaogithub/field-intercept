@@ -43,4 +43,10 @@ public @interface RouterFieldConsumer {
      */
     String routerField();
 
+    /**
+     * 如果都不匹配， 使用这个
+     *
+     * @return
+     */
+    FieldConsumer defaultElse() default @FieldConsumer;
 }
