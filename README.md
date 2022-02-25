@@ -10,10 +10,55 @@
 
 #### 安装教程
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+1.  添加maven依赖
 
+            <!-- https://mvnrepository.com/artifact/com.github.wangzihaogithub/field-intercept -->
+            <dependency>
+                <groupId>com.github.wangzihaogithub</groupId>
+                <artifactId>field-intercept</artifactId>
+                <version>1.0.0</version>
+            </dependency>
+
+2.  添加注解，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类
+
+        @EnableFieldIntercept(beanBasePackages = "com.ig", parallelQuery = true)
+        @SpringBootApplication
+        public class IgWebHrApplication {
+            public static void main(String[] args) {
+                SpringApplication.run(IgWebHrApplication.class,args);
+            }
+        }
+        
+        
+3.  在方法上标记 @ReturnFieldAop注解， 
+
+           @ReturnFieldAop
+           @Override
+           public List<StatisticsDetailResp> selectHrDetailList(StatisticsHrListDetailReq req) {
+               return mapper.selectHrDetailList(req);
+           }
+            
+            @Data
+            public class StatisticsDetailResp {
+                private Integer pipelineId;
+                private Integer talentId;
+                /**
+                 * 最近一段工作经历	公司/职位/时间
+                 */
+                @FieldConsumer(value = MyServiceNames.TALENT_WORK_LAST, keyField = "talentId")
+                private TalentWork talentWork;
+            
+                /**
+                 * 学历	学历/毕业院校/就读时间
+                 */
+                @FieldConsumer(value = MyServiceNames.TALENT_EDU_FIRST, keyField = "talentId")
+                private TalentEdu talentEdu;
+            }
+            
+4.  业务数据和逻辑就进去了，
+
+5.  详细看 /src/test/java/包下有代码示例 
+        
 #### 使用说明
 
 1.  xxxx
