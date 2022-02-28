@@ -10,7 +10,8 @@
 
 #### 安装教程
 
-1.  添加maven依赖
+1.  添加maven依赖, 在pom.xml中加入 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.wangzihaogithub/field-intercept/badge.svg)](https://search.maven.org/search?q=g:com.github.wangzihaogithub%20AND%20a:field-intercept)
+
 
             <!-- https://mvnrepository.com/artifact/com.github.wangzihaogithub/field-intercept -->
             <dependency>
