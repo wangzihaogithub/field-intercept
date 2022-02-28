@@ -22,6 +22,7 @@
 
 2.  添加注解，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类
 
+
         @EnableFieldIntercept(beanBasePackages = "com.ig", parallelQuery = true)
         @SpringBootApplication
         public class IgWebHrApplication {
@@ -32,6 +33,7 @@
         
         
 3.  在方法上标记 @ReturnFieldAop注解， 
+
 
            @ReturnFieldAop
            @Override
