@@ -49,9 +49,9 @@ public class ReturnFieldDispatchAop {
      */
     private final Set<List<String>> myProjectPackagePaths = new LinkedHashSet<>();
     /**
-     * 用户自定义注解
+     * 动态注解 或 用户自定义注解
      */
-    private final Set<Class<? extends Annotation>> myAnnotations = new LinkedHashSet<>();
+    private final Set<Class<? extends Annotation>> annotations = new LinkedHashSet<>();
     private Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
@@ -85,8 +85,8 @@ public class ReturnFieldDispatchAop {
         return myProjectPackagePaths;
     }
 
-    public Set<Class<? extends Annotation>> getMyAnnotations() {
-        return myAnnotations;
+    public Set<Class<? extends Annotation>> getAnnotations() {
+        return annotations;
     }
 
     public void autowiredFieldValue(Object... result) {
@@ -405,7 +405,7 @@ public class ReturnFieldDispatchAop {
             }
 
             //自定义消费字段
-            for (Class<? extends Annotation> myAnnotationClass : myAnnotations) {
+            for (Class<? extends Annotation> myAnnotationClass : annotations) {
                 Annotation myAnnotation = field.getDeclaredAnnotation(myAnnotationClass);
                 if (myAnnotation != null) {
                     if (beanHandler == null) {

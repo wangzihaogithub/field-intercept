@@ -6,6 +6,7 @@ import com.github.fieldintercept.ReturnFieldDispatchAop;
 import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.annotation.EnumDBFieldConsumer;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -32,9 +33,33 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
     private boolean parallelQuery;
     private Class<? extends Annotation>[] myAnnotations = new Class[0];
 
+    /**
+     * 注册别名
+     *
+     * @param context  spring上下文
+     * @param beanType bean类型
+     * @param alias    起的新别名
+     * @return 是否注册别名成功。true=成功
+     */
+    public static boolean registryAlias(ApplicationContext context, Class beanType, String alias) {
+        if (context instanceof AliasRegistry) {
+            AliasRegistry aliasRegistry = ((AliasRegistry) context);
+            List<String> beanNames = Arrays.asList(context.getBeanNamesForType(beanType));
+            if (beanNames.size() > 0) {
+                if (!beanNames.contains(alias)) {
+                    aliasRegistry.registerAlias(beanNames.get(beanNames.size() - 1), alias);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Bean("returnFieldDispatchAop")
-    public ReturnFieldDispatchAop returnFieldDispatchAop(ApplicationContext context, ConfigurableEnvironment environment) {
+    public ReturnFieldDispatchAop returnFieldDispatchAop(ApplicationContext context,
+                                                         @Autowired(required = false) ConfigurableEnvironment environment) {
         ReturnFieldDispatchAop dispatchAop = new ReturnFieldDispatchAop(s -> context.getBean(s, BiConsumer.class));
+        dispatchAop.setConfigurableEnvironment(environment);
         dispatchAop.setSkipFieldClassPredicate(type -> context.getBeanNamesForType(type, true, false).length > 0);
         if (parallelQuery) {
             ExecutorService taskExecutor = taskExecutor();
@@ -42,22 +67,17 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
         } else {
             dispatchAop.setTaskExecutor(null);
         }
-        dispatchAop.setConfigurableEnvironment(environment);
         // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {
             dispatchAop.addBeanPackagePaths(beanBasePackage);
         }
         // 注册自定义注解
         for (Class<? extends Annotation> myAnnotation : myAnnotations) {
-            dispatchAop.getMyAnnotations().add(myAnnotation);
+            dispatchAop.getAnnotations().add(myAnnotation);
         }
         // 注册数据库枚举查询别名
-        if (context instanceof AliasRegistry) {
-            AliasRegistry aliasRegistry = ((AliasRegistry) context);
-            List<String> enumDBFieldInterceptNames = Arrays.asList(context.getBeanNamesForType(EnumDBFieldIntercept.class));
-            if (enumDBFieldInterceptNames.size() > 0 && !enumDBFieldInterceptNames.contains(EnumDBFieldConsumer.NAME)) {
-                aliasRegistry.registerAlias(enumDBFieldInterceptNames.get(enumDBFieldInterceptNames.size() - 1), EnumDBFieldConsumer.NAME);
-            }
+        if (registryAlias(context, EnumDBFieldIntercept.class, EnumDBFieldConsumer.NAME)) {
+            dispatchAop.getAnnotations().add(EnumDBFieldConsumer.class);
         }
         return dispatchAop;
     }
@@ -68,7 +88,7 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
         return new EnumFieldIntercept();
     }
 
-    private ExecutorService taskExecutor() {
+    public ExecutorService taskExecutor() {
         return new ThreadPoolExecutor(0, Math.max(8, Runtime.getRuntime().availableProcessors() * 4),
                 60L, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(20),

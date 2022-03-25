@@ -44,6 +44,9 @@ public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object>
         Set<String> groupList = new LinkedHashSet<>();
         for (CField cField : cFields) {
             String[] groups = getGroups(cField.getAnnotation());
+            if (groups == null) {
+                continue;
+            }
             groupList.addAll(Arrays.asList(groups));
         }
 
@@ -72,7 +75,14 @@ public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object>
      * @return 组
      */
     public String[] getGroups(Annotation annotation) {
-        return (String[]) AnnotationUtils.getValue(annotation);
+        Object value = AnnotationUtils.getValue(annotation);
+        if (value instanceof String[]) {
+            return (String[]) value;
+        } else if (value instanceof String) {
+            return new String[]{(String) value};
+        } else {
+            return null;
+        }
     }
 
     /**

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
+//@EnableFieldIntercept(beanBasePackages = {"com.ig"})
 @EnableFieldIntercept(beanBasePackages = {"com.ig"}, myAnnotations = {EnumDBFieldConsumer.class})
 @SpringBootApplication
 public class FieldInterceptApplicationTest {
@@ -34,9 +35,13 @@ public class FieldInterceptApplicationTest {
     public static class MyEnumDBFieldIntercept extends EnumDBFieldIntercept {
         @Override
         public String[] getGroups(Annotation annotation) {
-            BaseEnumGroupEnum[] value = (BaseEnumGroupEnum[]) AnnotationUtils.getValue(annotation);
-            return Stream.of(value).map(BaseEnumGroupEnum::getGroup)
-                    .toArray(String[]::new);
+            String[] groups = super.getGroups(annotation);
+            if (groups == null) {
+                BaseEnumGroupEnum[] value = (BaseEnumGroupEnum[]) AnnotationUtils.getValue(annotation);
+                groups = Stream.of(value).map(BaseEnumGroupEnum::getGroup)
+                        .toArray(String[]::new);
+            }
+            return groups;
         }
 
         @Override
