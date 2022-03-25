@@ -119,6 +119,10 @@ public class BeanUtil {
         for (Map.Entry<String, Object> entry : sourceBeanMap.entrySet()) {
             String key = entry.getKey();
             Object sourceValue = entry.getValue();
+            Field sourceField = sourceBeanMap.getField(key);
+            if(sourceField != null && Modifier.isTransient(sourceField.getModifiers())){
+                continue;
+            }
             Object targetValue = transform(sourceValue, null, context);
             if (targetBeanMap != null) {
                 targetBeanMap.set(key, targetValue);
@@ -148,7 +152,10 @@ public class BeanUtil {
         for (Map.Entry<String, Object> entry : sourceBeanMap.entrySet()) {
             String key = entry.getKey();
             Object sourceValue = entry.getValue();
-
+            Field sourceField = sourceBeanMap.getField(key);
+            if(sourceField != null && Modifier.isTransient(sourceField.getModifiers())){
+                continue;
+            }
             PropertyDescriptor targetDescriptor = targetBeanMap.getPropertyDescriptor(key);
             if (targetDescriptor == null) {
                 // 目标对象没有这个字段
