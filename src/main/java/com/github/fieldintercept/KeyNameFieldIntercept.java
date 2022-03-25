@@ -147,7 +147,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
             nameMap = selectNameMapByKeys.apply(keys);
         }
         if (nameMap == null) {
-            throw new UnsupportedOperationException("您的方法未实现完全");
+            throw new UnsupportedOperationException("您的selectNameMapByKeys方法未实现完全");
         }
         return nameMap;
     }

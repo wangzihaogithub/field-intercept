@@ -5,6 +5,11 @@ import org.springframework.core.annotation.AnnotationUtils;
 import java.lang.annotation.Annotation;
 import java.util.*;
 
+/**
+ * 枚举注入 （java enum版）
+ *
+ * @author hao
+ */
 public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
 
     private static String getGroup(Class<? extends java.lang.Enum> type) {

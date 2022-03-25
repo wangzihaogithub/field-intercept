@@ -14,6 +14,7 @@ import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.beans.PropertyDescriptor;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -47,6 +48,10 @@ public class ReturnFieldDispatchAop {
      * 实体类包名一样, 就认为是业务实体类
      */
     private final Set<List<String>> myProjectPackagePaths = new LinkedHashSet<>();
+    /**
+     * 用户自定义注解
+     */
+    private final Set<Class<? extends Annotation>> myAnnotations = new LinkedHashSet<>();
     private Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
@@ -58,6 +63,10 @@ public class ReturnFieldDispatchAop {
 
     public ReturnFieldDispatchAop(Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction) {
         this.biConsumerFunction = biConsumerFunction;
+    }
+
+    public static String getMyAnnotationConsumerName(Class<? extends Annotation> myAnnotationClass) {
+        return myAnnotationClass.getSimpleName();
     }
 
     public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
@@ -74,6 +83,10 @@ public class ReturnFieldDispatchAop {
 
     public Set<List<String>> getMyProjectPackagePaths() {
         return myProjectPackagePaths;
+    }
+
+    public Set<Class<? extends Annotation>> getMyAnnotations() {
+        return myAnnotations;
     }
 
     public void autowiredFieldValue(Object... result) {
@@ -390,6 +403,21 @@ public class ReturnFieldDispatchAop {
                 continue;
 //                    }
             }
+
+            //自定义消费字段
+            for (Class<? extends Annotation> myAnnotationClass : myAnnotations) {
+                Annotation myAnnotation = field.getDeclaredAnnotation(myAnnotationClass);
+                if (myAnnotation != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    String name = getMyAnnotationConsumerName(myAnnotationClass);
+                    CField cField = new CField(name, beanHandler, field, myAnnotation);
+                    groupCollectMap.computeIfAbsent(name, e -> new ArrayList<>())
+                            .add(cField);
+                }
+            }
+
 
             boolean isMultiple = isMultiple(field.getType());
             if (isMultiple) {

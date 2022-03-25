@@ -1,5 +1,6 @@
 package com.github.fieldintercept.annotation;
 
+import com.github.fieldintercept.ReturnFieldDispatchAop;
 import com.github.fieldintercept.springboot.FieldInterceptAutoConfiguration;
 import org.springframework.context.annotation.Import;
 
@@ -32,4 +33,16 @@ public @interface EnableFieldIntercept {
      * @return true=用线程池并行,false=在调用者线程上串行
      */
     boolean parallelQuery() default true;
+
+    /**
+     * 注册自定义注解
+     * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
+     * 2. 自定义注解可以覆盖框架注解
+     * 前提
+     * 1. spring容器里必须有和注解短类名相同的bean。myAnnotationClass.getSimpleName()。 {@link ReturnFieldDispatchAop#getMyAnnotationConsumerName(Class)}
+     * 2. bean需要实现接口处理自定义逻辑 {@link ReturnFieldDispatchAop.FieldIntercept}
+     *
+     * @return 需要添加的自定义注解
+     */
+    Class<? extends Annotation>[] myAnnotations() default {};
 }

@@ -6,24 +6,24 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * 枚举字段消费
+ * 枚举数据库字段消费
  *
  * @author hao
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.FIELD})
-public @interface EnumFieldConsumer {
+public @interface EnumDBFieldConsumer {
     /**
      * 基础枚举名称
      */
-    String NAME = "EnumFieldConsumer";
+    String NAME = "EnumDBFieldConsumer";
 
     /**
      * 枚举组
      *
      * @return 枚举
      */
-    Class<? extends Enum>[] value();
+    String[] value();
 
     /**
      * 通常用于告知aop. id字段,或者key字段
@@ -41,7 +41,7 @@ public @interface EnumFieldConsumer {
      *
      * @return 字段名称
      */
-    String[] valueField() default {"${value}"};
+    String[] valueField() default {"${name}"};
 
     /**
      * 多个拼接间隔符

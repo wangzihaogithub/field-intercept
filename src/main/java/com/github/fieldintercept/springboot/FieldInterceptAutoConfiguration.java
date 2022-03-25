@@ -1,16 +1,23 @@
 package com.github.fieldintercept.springboot;
 
+import com.github.fieldintercept.EnumDBFieldIntercept;
 import com.github.fieldintercept.EnumFieldIntercept;
 import com.github.fieldintercept.ReturnFieldDispatchAop;
 import com.github.fieldintercept.annotation.EnableFieldIntercept;
+import com.github.fieldintercept.annotation.EnumDBFieldConsumer;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ImportAware;
+import org.springframework.core.AliasRegistry;
 import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.type.AnnotationMetadata;
 
+import java.lang.annotation.Annotation;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
@@ -23,6 +30,7 @@ import java.util.function.BiConsumer;
 public class FieldInterceptAutoConfiguration implements ImportAware {
     private String[] beanBasePackages = {};
     private boolean parallelQuery;
+    private Class<? extends Annotation>[] myAnnotations = new Class[0];
 
     @Bean("returnFieldDispatchAop")
     public ReturnFieldDispatchAop returnFieldDispatchAop(ApplicationContext context, ConfigurableEnvironment environment) {
@@ -35,13 +43,27 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
             dispatchAop.setTaskExecutor(null);
         }
         dispatchAop.setConfigurableEnvironment(environment);
+        // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {
             dispatchAop.addBeanPackagePaths(beanBasePackage);
+        }
+        // 注册自定义注解
+        for (Class<? extends Annotation> myAnnotation : myAnnotations) {
+            dispatchAop.getMyAnnotations().add(myAnnotation);
+        }
+        // 注册数据库枚举查询别名
+        if (context instanceof AliasRegistry) {
+            AliasRegistry aliasRegistry = ((AliasRegistry) context);
+            List<String> enumDBFieldInterceptNames = Arrays.asList(context.getBeanNamesForType(EnumDBFieldIntercept.class));
+            if (enumDBFieldInterceptNames.size() > 0 && !enumDBFieldInterceptNames.contains(EnumDBFieldConsumer.NAME)) {
+                aliasRegistry.registerAlias(enumDBFieldInterceptNames.get(enumDBFieldInterceptNames.size() - 1), EnumDBFieldConsumer.NAME);
+            }
         }
         return dispatchAop;
     }
 
     @Bean(EnumFieldConsumer.NAME)
+    @ConditionalOnMissingBean(name = EnumFieldConsumer.NAME)
     public EnumFieldIntercept enumFieldIntercept() {
         return new EnumFieldIntercept();
     }
@@ -67,6 +89,7 @@ public class FieldInterceptAutoConfiguration implements ImportAware {
         AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(EnableFieldIntercept.class.getName()));
         this.beanBasePackages = attributes.getStringArray("beanBasePackages");
         this.parallelQuery = attributes.getBoolean("parallelQuery");
+        this.myAnnotations = (Class<? extends Annotation>[]) attributes.getClassArray("myAnnotations");
     }
 
 }

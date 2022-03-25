@@ -147,7 +147,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         Map<KEY, VALUE> valueMap = selectValueMapByKeys(keys);
         if (valueMap == null) {
             if (selectValueMapByKeys == null) {
-                throw new UnsupportedOperationException("您的方法未实现完全");
+                throw new UnsupportedOperationException("您的selectValueMapByKeys方法未实现完全");
             }
             valueMap = selectValueMapByKeys.apply(keys);
         }
