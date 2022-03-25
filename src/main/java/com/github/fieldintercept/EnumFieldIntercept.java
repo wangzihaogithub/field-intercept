@@ -12,6 +12,13 @@ import java.util.*;
  */
 public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
 
+    public EnumFieldIntercept() {
+    }
+
+    public EnumFieldIntercept(int shareTimeout) {
+        super(shareTimeout);
+    }
+
     private static String getGroup(Class<? extends java.lang.Enum> type) {
         return type.getName();
     }

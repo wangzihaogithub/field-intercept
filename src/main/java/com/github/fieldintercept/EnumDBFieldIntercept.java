@@ -14,6 +14,30 @@ import java.util.function.BiFunction;
 public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
     private BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap;
 
+    public EnumDBFieldIntercept() {
+    }
+
+    public EnumDBFieldIntercept(int shareTimeout) {
+        super(shareTimeout);
+    }
+
+    public EnumDBFieldIntercept(BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap) {
+        this.selectEnumGroupKeyValueMap = selectEnumGroupKeyValueMap;
+    }
+
+    public EnumDBFieldIntercept(int shareTimeout, BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap) {
+        super(shareTimeout);
+        this.selectEnumGroupKeyValueMap = selectEnumGroupKeyValueMap;
+    }
+
+    public BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> getSelectEnumGroupKeyValueMap() {
+        return selectEnumGroupKeyValueMap;
+    }
+
+    public void setSelectEnumGroupKeyValueMap(BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap) {
+        this.selectEnumGroupKeyValueMap = selectEnumGroupKeyValueMap;
+    }
+
     @Override
     public Map<Object, Object> selectValueMapByKeys(List<CField> cFields, Collection<Object> keys) {
         Map<Object, Object> valueMap = new LinkedHashMap<>(5);
