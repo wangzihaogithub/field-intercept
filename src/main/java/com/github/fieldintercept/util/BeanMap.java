@@ -217,9 +217,9 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
         Map<String, PropertyDescriptor> result = new LinkedHashMap<>();
         Set<String> fieldNames = new LinkedHashSet<>();
+        fieldNames.addAll(fields.keySet());
         fieldNames.addAll(getterMethods.keySet());
         fieldNames.addAll(setterMethods.keySet());
-        fieldNames.addAll(fields.keySet());
         for (String fieldName : fieldNames) {
             Method getterMethod = getterMethods.get(fieldName);
             Method setterMethod = setterMethods.get(fieldName);
