@@ -8,7 +8,7 @@ import org.springframework.core.type.AnnotationMetadata;
  *
  * @author hao 2021年12月12日19:00:05
  */
-public class FieldInterceptAutoConfiguration implements DeferredImportSelector {
+public class FieldInterceptImportSelector implements DeferredImportSelector {
 
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {

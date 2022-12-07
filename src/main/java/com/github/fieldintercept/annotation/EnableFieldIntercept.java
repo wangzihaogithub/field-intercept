@@ -1,7 +1,7 @@
 package com.github.fieldintercept.annotation;
 
 import com.github.fieldintercept.ReturnFieldDispatchAop;
-import com.github.fieldintercept.springboot.FieldInterceptAutoConfiguration;
+import com.github.fieldintercept.springboot.FieldInterceptImportSelector;
 import org.springframework.context.annotation.Import;
 
 import java.lang.annotation.*;
@@ -10,13 +10,13 @@ import java.lang.annotation.*;
  * 开启字段拦截
  *
  * @author hao 2021年12月12日23:06:09
- * @see FieldInterceptAutoConfiguration
+ * @see FieldInterceptImportSelector
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
 @Documented
 @Inherited
-@Import({FieldInterceptAutoConfiguration.class})
+@Import({FieldInterceptImportSelector.class})
 public @interface EnableFieldIntercept {
     /**
      * 业务实体类的包路径
