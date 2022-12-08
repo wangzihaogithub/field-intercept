@@ -16,6 +16,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import java.beans.PropertyDescriptor;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
+import java.time.temporal.TemporalAccessor;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -251,6 +252,20 @@ public class ReturnFieldDispatchAop {
         return false;
     }
 
+    protected boolean isBasicType(Class type) {
+        if (type.isPrimitive()
+                || type == String.class
+                || Type.class.isAssignableFrom(type)
+                || Number.class.isAssignableFrom(type)
+                || Date.class.isAssignableFrom(type)
+                || TemporalAccessor.class.isAssignableFrom(type)
+                || type.isEnum()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     protected boolean isEntity(Class type) {
         Package typePackage = type.getPackage();
         if (typePackage == null) {
@@ -284,15 +299,11 @@ public class ReturnFieldDispatchAop {
      */
     protected void collectBean(Object bean,
                                Map<String, List<CField>> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
-        if (bean == null || bean instanceof Class) {
+        if (bean == null) {
             return;
         }
         Class<?> rootClass = bean.getClass();
-        if (rootClass.isPrimitive()
-                || rootClass == String.class
-                || Number.class.isAssignableFrom(rootClass)
-                || Date.class.isAssignableFrom(rootClass)
-                || rootClass.isEnum()) {
+        if (isBasicType(rootClass)) {
             return;
         }
 
@@ -431,7 +442,7 @@ public class ReturnFieldDispatchAop {
                 }
             }
 
-            boolean isEntity = isEntity(field.getType());
+            boolean isEntity = !isBasicType(field.getType()) && isEntity(field.getType());
             if (isEntity) {
                 try {
                     // 防止触发 getter方法, 忽略private, 强行取字段值
