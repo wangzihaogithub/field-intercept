@@ -253,17 +253,13 @@ public class ReturnFieldDispatchAop {
     }
 
     protected boolean isBasicType(Class type) {
-        if (type.isPrimitive()
+        return type.isPrimitive()
                 || type == String.class
                 || Type.class.isAssignableFrom(type)
                 || Number.class.isAssignableFrom(type)
                 || Date.class.isAssignableFrom(type)
                 || TemporalAccessor.class.isAssignableFrom(type)
-                || type.isEnum()) {
-            return true;
-        } else {
-            return false;
-        }
+                || type.isEnum();
     }
 
     protected boolean isEntity(Class type) {
