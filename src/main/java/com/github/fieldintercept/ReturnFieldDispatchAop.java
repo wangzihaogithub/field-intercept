@@ -8,6 +8,7 @@ import com.github.fieldintercept.util.BeanMap;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.AnnotationUtils;
@@ -20,6 +21,9 @@ import java.time.temporal.TemporalAccessor;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -53,10 +57,34 @@ public class ReturnFieldDispatchAop {
      * 动态注解 或 用户自定义注解
      */
     private final Set<Class<? extends Annotation>> annotations = new LinkedHashSet<>();
-    private Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
+    private final List<Object> pendingList = new ArrayList<>(100);
+    private final ReentrantLock lock = new ReentrantLock();
+    private final Condition condition = lock.newCondition();
+    private final AtomicReference<Thread> pendingSignalThreadRef = new AtomicReference<>();
+    private final Map<Class, Boolean> typeBasicCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 100;
+        }
+    };
+    private final Map<Class, Boolean> typeEntryCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 100;
+        }
+    };
+    private final Map<Class, Boolean> typeMultipleCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 100;
+        }
+    };
+    private final Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
     private Predicate<Class> skipFieldClassPredicate = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtils.findAnnotation(type, SPRING_INDEXED_ANNOTATION) != null;
+    private long batchAggregationTimeMs;
+    private boolean batchAggregation;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
         this.biConsumerFunction = map::get;
@@ -113,6 +141,14 @@ public class ReturnFieldDispatchAop {
             returning = "result")
     protected void returningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
         log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
+        if (isNeedPending(joinPoint, result)) {
+            pending(joinPoint, result);
+        } else {
+            collectAndAutowired(joinPoint, result);
+        }
+    }
+
+    protected void collectAndAutowired(JoinPoint joinPoint, Object result) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
         Map<String, List<CField>> groupCollectMap = new LinkedHashMap<>();
 
         Map<String, FieldIntercept> aopFieldInterceptMap = new LinkedHashMap<>();
@@ -152,7 +188,7 @@ public class ReturnFieldDispatchAop {
                 try {
                     o.end(joinPoint, allFieldList, result);
                 } catch (Exception e) {
-                    log.warn("aopFieldIntercept end error = {}, intercept = {}", e.toString(), o, e);
+                    log.warn("aopFieldIntercept end error = {}, intercept = {}", e, o, e);
                 }
             });
         }
@@ -240,51 +276,56 @@ public class ReturnFieldDispatchAop {
     }
 
     protected boolean isMultiple(Class type) {
-        if (Iterable.class.isAssignableFrom(type)) {
-            return true;
-        }
-        if (Map.class.isAssignableFrom(type)) {
-            return true;
-        }
-        if (type.isArray()) {
-            return true;
-        }
-        return false;
+        return typeMultipleCacheMap.computeIfAbsent(type, e -> {
+            if (Iterable.class.isAssignableFrom(e)) {
+                return true;
+            }
+            if (Map.class.isAssignableFrom(e)) {
+                return true;
+            }
+            if (e.isArray()) {
+                return true;
+            }
+            return false;
+        });
     }
 
     protected boolean isBasicType(Class type) {
-        return type.isPrimitive()
-                || type == String.class
-                || Type.class.isAssignableFrom(type)
-                || Number.class.isAssignableFrom(type)
-                || Date.class.isAssignableFrom(type)
-                || TemporalAccessor.class.isAssignableFrom(type)
-                || type.isEnum();
+        return typeBasicCacheMap.computeIfAbsent(type, e ->
+                e.isPrimitive()
+                        || e == String.class
+                        || Type.class.isAssignableFrom(e)
+                        || Number.class.isAssignableFrom(e)
+                        || Date.class.isAssignableFrom(e)
+                        || TemporalAccessor.class.isAssignableFrom(e)
+                        || e.isEnum());
     }
 
     protected boolean isEntity(Class type) {
-        Package typePackage = type.getPackage();
-        if (typePackage == null) {
-            return false;
-        }
-
-        String[] packagePaths = typePackage.getName().split("[.]");
-        for (List<String> myProjectPackagePath : getMyProjectPackagePaths()) {
-            if (packagePaths.length < myProjectPackagePath.size()) {
-                continue;
+        return typeEntryCacheMap.computeIfAbsent(type, e -> {
+            Package typePackage = e.getPackage();
+            if (typePackage == null) {
+                return false;
             }
-            boolean isEntity = true;
-            for (int i = 0; i < myProjectPackagePath.size(); i++) {
-                if (!myProjectPackagePath.get(i).equals(packagePaths[i])) {
-                    isEntity = false;
-                    break;
+
+            String[] packagePaths = typePackage.getName().split("[.]");
+            for (List<String> myProjectPackagePath : getMyProjectPackagePaths()) {
+                if (packagePaths.length < myProjectPackagePath.size()) {
+                    continue;
+                }
+                boolean isEntity = true;
+                for (int i = 0; i < myProjectPackagePath.size(); i++) {
+                    if (!myProjectPackagePath.get(i).equals(packagePaths[i])) {
+                        isEntity = false;
+                        break;
+                    }
+                }
+                if (isEntity) {
+                    return true;
                 }
             }
-            if (isEntity) {
-                return true;
-            }
-        }
-        return false;
+            return false;
+        });
     }
 
     /**
@@ -295,7 +336,7 @@ public class ReturnFieldDispatchAop {
      */
     protected void collectBean(Object bean,
                                Map<String, List<CField>> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
-        if (bean == null) {
+        if (bean == null || bean instanceof Class) {
             return;
         }
         Class<?> rootClass = bean.getClass();
@@ -480,8 +521,115 @@ public class ReturnFieldDispatchAop {
         if (target == null) {
             return null;
         }
-        field.setAccessible(true);
+//        field.setAccessible(true);
         return field.get(target);
+    }
+
+    public void setBatchAggregation(boolean batchAggregation) {
+        this.batchAggregation = batchAggregation;
+    }
+
+    public boolean isBatchAggregation() {
+        return batchAggregation;
+    }
+
+    protected boolean isNeedPending(JoinPoint joinPoint, Object returnResult) {
+        if (!batchAggregation) {
+            return false;
+        }
+        if (joinPoint == null) {
+            return true;
+        }
+        ReturnFieldAop returnFieldAop = ((MethodSignature) joinPoint.getSignature()).getMethod().getAnnotation(ReturnFieldAop.class);
+        return returnFieldAop.batchAggregation();
+    }
+
+    public void startPendingSignalThreadIfNeed() {
+        Thread thread;
+        if (pendingSignalThreadRef.compareAndSet(null, thread = new PendingSignalThread(this))) {
+            thread.start();
+        }
+    }
+
+    public void setBatchAggregationTimeMs(long batchAggregationTimeMs) {
+        this.batchAggregationTimeMs = batchAggregationTimeMs;
+    }
+
+    public long getBatchAggregationTimeMs() {
+        return batchAggregationTimeMs;
+    }
+
+    private void pending(JoinPoint joinPoint, Object returnResult) throws InterruptedException {
+        startPendingSignalThreadIfNeed();
+        synchronized (pendingList) {
+            pendingList.add(returnResult);
+        }
+        lock.lock();
+        try {
+            condition.await();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public boolean existPending() {
+        return !pendingList.isEmpty();
+    }
+
+    private void signalAll() throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
+        List<Object> poll = pollPending();
+        if (poll.isEmpty()) {
+            return;
+        }
+        lock.lock();
+        try {
+            collectAndAutowired(null, poll);
+            condition.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    protected List<Object> pollPending() {
+        synchronized (pendingList) {
+            if (pendingList.isEmpty()) {
+                return Collections.emptyList();
+            }
+            ArrayList<Object> objects = new ArrayList<>(pendingList);
+            pendingList.clear();
+            return objects;
+        }
+    }
+
+    public static class PendingSignalThread extends Thread {
+        private final ReturnFieldDispatchAop aop;
+
+        public PendingSignalThread(ReturnFieldDispatchAop aop) {
+            this.aop = aop;
+            setName("ReturnFieldDispatchAop-PendingSignal" + getId());
+            setDaemon(true);
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                long start = System.currentTimeMillis();
+                try {
+                    aop.signalAll();
+                    long executeTime = System.currentTimeMillis() - start;
+                    long sleepTime = aop.getBatchAggregationTimeMs() - executeTime;
+                    if (sleepTime > 1 && !aop.existPending()) {
+                        Thread.sleep(sleepTime);
+                    }
+                } catch (InterruptedException e) {
+                    return;
+                } catch (ExecutionException | InvocationTargetException | IllegalAccessException e) {
+                    log.warn("collectAndAutowired Execution error = {}", e, e);
+                } catch (Throwable e) {
+                    log.warn("collectAndAutowired Throwable error = {}", e, e);
+                }
+            }
+        }
     }
 
     /**
