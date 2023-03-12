@@ -61,29 +61,29 @@ public class ReturnFieldDispatchAop {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition condition = lock.newCondition();
     private final AtomicReference<Thread> pendingSignalThreadRef = new AtomicReference<>();
-    private final Map<Class, Boolean> typeBasicCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+    private final Map<Class, Boolean> typeBasicCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 100;
         }
-    };
-    private final Map<Class, Boolean> typeEntryCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+    });
+    private final Map<Class, Boolean> typeEntryCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 100;
         }
-    };
-    private final Map<Class, Boolean> typeMultipleCacheMap = new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+    });
+    private final Map<Class, Boolean> typeMultipleCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 100;
         }
-    };
+    });
     private final Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
     private Predicate<Class> skipFieldClassPredicate = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtils.findAnnotation(type, SPRING_INDEXED_ANNOTATION) != null;
-    private long batchAggregationTimeMs;
+    private long batchAggregationTimeMs = 10;
     private boolean batchAggregation;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
@@ -545,6 +545,9 @@ public class ReturnFieldDispatchAop {
     }
 
     public void startPendingSignalThreadIfNeed() {
+        if (pendingSignalThreadRef.get() != null) {
+            return;
+        }
         Thread thread;
         if (pendingSignalThreadRef.compareAndSet(null, thread = new PendingSignalThread(this))) {
             thread.start();
@@ -576,17 +579,32 @@ public class ReturnFieldDispatchAop {
         return !pendingList.isEmpty();
     }
 
-    private void signalAll() throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
+    private Future signalAll() throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
         List<Object> poll = pollPending();
         if (poll.isEmpty()) {
-            return;
+            return null;
         }
-        lock.lock();
-        try {
-            collectAndAutowired(null, poll);
-            condition.signalAll();
-        } finally {
-            lock.unlock();
+        Function<Runnable, Future> taskExecutor = this.taskExecutor;
+        if (taskExecutor == null) {
+            lock.lock();
+            try {
+                collectAndAutowired(null, poll);
+                condition.signalAll();
+            } finally {
+                lock.unlock();
+            }
+            return null;
+        } else {
+            return taskExecutor.apply(() -> {
+                lock.lock();
+                try {
+                    collectAndAutowired(null, poll);
+                    condition.signalAll();
+                } catch (ExecutionException | InterruptedException | InvocationTargetException | IllegalAccessException ignored) {
+                } finally {
+                    lock.unlock();
+                }
+            });
         }
     }
 
@@ -615,11 +633,17 @@ public class ReturnFieldDispatchAop {
             while (true) {
                 long start = System.currentTimeMillis();
                 try {
-                    aop.signalAll();
+                    Future future = aop.signalAll();
                     long executeTime = System.currentTimeMillis() - start;
                     long sleepTime = aop.getBatchAggregationTimeMs() - executeTime;
-                    if (sleepTime > 1 && !aop.existPending()) {
-                        Thread.sleep(sleepTime);
+                    if (sleepTime > 1) {
+                        if (future == null || future.isDone()) {
+                            if (aop.pendingList.isEmpty()) {
+                                Thread.sleep(sleepTime);
+                            }
+                        } else {
+                            Thread.sleep(sleepTime);
+                        }
                     }
                 } catch (InterruptedException e) {
                     return;

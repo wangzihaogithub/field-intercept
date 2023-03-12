@@ -20,7 +20,10 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 //@EnableFieldIntercept(beanBasePackages = {"com.ig"})
-@EnableFieldIntercept(beanBasePackages = {"com.ig"}, myAnnotations = {EnumDBFieldConsumer.class})
+@EnableFieldIntercept(beanBasePackages = {"com.ig"},
+        myAnnotations = {EnumDBFieldConsumer.class},
+        batchAggregation = true
+)
 @SpringBootApplication
 public class FieldInterceptApplicationTest {
 
@@ -34,9 +37,9 @@ public class FieldInterceptApplicationTest {
     }
 
     @Service
-    public static class ApplyOrderService{
+    public static class ApplyOrderService {
         @ReturnFieldAop(batchAggregation = true)
-        public ApplyOrder getById(){
+        public ApplyOrder getById() {
             return new ApplyOrder();
         }
     }
