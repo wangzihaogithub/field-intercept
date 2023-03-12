@@ -24,7 +24,7 @@
             <dependency>
                 <groupId>com.github.wangzihaogithub</groupId>
                 <artifactId>field-intercept</artifactId>
-                <version>1.0.3</version>
+                <version>1.0.4</version>
             </dependency>
 
 2.  添加注解，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类

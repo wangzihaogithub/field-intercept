@@ -34,6 +34,9 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     private String[] beanBasePackages = {};
     private boolean parallelQuery;
+    private int parallelQueryMaxThreads;
+    private long batchAggregationTimeMs;
+    private boolean batchAggregation;
     private Class<? extends Annotation>[] myAnnotations = new Class[0];
     private ListableBeanFactory beanFactory;
     private Environment environment;
@@ -75,6 +78,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
                     ReturnFieldDispatchAop dispatchAop = new ReturnFieldDispatchAop(s -> beanFactory.getBean(s, BiConsumer.class));
                     dispatchAop.setConfigurableEnvironment(configurableEnvironment);
                     dispatchAop.setSkipFieldClassPredicate(type -> beanFactory.getBeanNamesForType(type, true, false).length > 0);
+                    dispatchAop.setBatchAggregation(batchAggregation);
+                    dispatchAop.setBatchAggregationTimeMs(batchAggregationTimeMs);
                     if (parallelQuery) {
                         ExecutorService taskExecutor = taskExecutor();
                         dispatchAop.setTaskExecutor(taskExecutor::submit);
@@ -105,9 +110,9 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     public ExecutorService taskExecutor() {
-        return new ThreadPoolExecutor(0, Math.max(8, Runtime.getRuntime().availableProcessors() * 5),
+        return new ThreadPoolExecutor(0, parallelQueryMaxThreads,
                 60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(20),
+                new SynchronousQueue<>(),
                 new ThreadFactory() {
                     private final ThreadGroup group = Thread.currentThread().getThreadGroup();
                     private final AtomicInteger threadNumber = new AtomicInteger(1);
@@ -143,7 +148,10 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(EnableFieldIntercept.class.getName()));
         this.beanBasePackages = attributes.getStringArray("beanBasePackages");
         this.parallelQuery = attributes.getBoolean("parallelQuery");
+        this.parallelQueryMaxThreads = attributes.getNumber("parallelQueryMaxThreads").intValue();
         this.myAnnotations = (Class<? extends Annotation>[]) attributes.getClassArray("myAnnotations");
+        this.batchAggregationTimeMs = attributes.getNumber("batchAggregationTimeMs").longValue();
+        this.batchAggregation = attributes.getBoolean("batchAggregation");
     }
 
     @Override

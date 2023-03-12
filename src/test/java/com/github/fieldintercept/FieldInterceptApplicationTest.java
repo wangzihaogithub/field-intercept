@@ -1,6 +1,7 @@
 package com.github.fieldintercept;
 
 import com.github.fieldintercept.annotation.EnableFieldIntercept;
+import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.entity.ApplyOrder;
 import com.github.fieldintercept.entity.BaseEnumGroupEnum;
 import com.github.fieldintercept.entity.EnumDBFieldConsumer;
@@ -9,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 import java.lang.annotation.Annotation;
 import java.util.Collection;
@@ -25,10 +27,18 @@ public class FieldInterceptApplicationTest {
     public static void main(String[] args) {
         ConfigurableApplicationContext context = SpringApplication.run(FieldInterceptApplicationTest.class, args);
 
-        ReturnFieldDispatchAop dispatchAop = context.getBean(ReturnFieldDispatchAop.class);
-        ApplyOrder order = new ApplyOrder();
-        dispatchAop.autowiredFieldValue(order);
-        System.out.println("user = " + order);
+        ApplyOrderService applyOrderService = context.getBean(ApplyOrderService.class);
+        ApplyOrder applyOrder = applyOrderService.getById();
+
+        System.out.println("applyOrder = " + applyOrder);
+    }
+
+    @Service
+    public static class ApplyOrderService{
+        @ReturnFieldAop(batchAggregation = true)
+        public ApplyOrder getById(){
+            return new ApplyOrder();
+        }
     }
 
     @Component

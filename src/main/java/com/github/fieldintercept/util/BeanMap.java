@@ -719,6 +719,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
         public FieldPropertyDescriptor(Field field, Class<?> beanClass, String readMethodName, String writeMethodName) throws IntrospectionException {
             super(field.getName(), beanClass, readMethodName, writeMethodName);
             this.field = field;
+            field.setAccessible(true);
         }
 
         public Field getField() {

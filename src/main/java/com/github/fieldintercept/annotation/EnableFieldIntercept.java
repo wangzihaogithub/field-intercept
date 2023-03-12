@@ -35,6 +35,28 @@ public @interface EnableFieldIntercept {
     boolean parallelQuery() default true;
 
     /**
+     * 并行查询线程数量
+     * 如果并发超过线程数量，超出的部分会在调用者线程上执行
+     *
+     * @return 线程数量
+     */
+    int parallelQueryMaxThreads() default 100;
+
+    /**
+     * 是否开启将N毫秒内的所有线程聚合到一起查询
+     *
+     * @return true=开启,false=不开启
+     */
+    boolean batchAggregation() default false;
+
+    /**
+     * 批量查询聚合时间（毫秒）
+     *
+     * @return 将N毫秒内的所有线程聚合到一起查询
+     */
+    long batchAggregationTimeMs() default 10L;
+
+    /**
      * 注册自定义注解
      * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
      * 2. 自定义注解可以覆盖框架注解

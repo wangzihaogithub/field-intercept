@@ -9,4 +9,11 @@ import java.lang.annotation.Target;
 @Target(ElementType.METHOD)
 public @interface ReturnFieldAop {
 
+    /**
+     * 是否开启将N毫秒内的所有线程聚合到一起查询
+     *
+     * @return true=开启,false=不开启
+     */
+    boolean batchAggregation() default true;
+
 }
