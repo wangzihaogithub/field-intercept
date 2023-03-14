@@ -43,18 +43,25 @@ public @interface EnableFieldIntercept {
     int parallelQueryMaxThreads() default 100;
 
     /**
-     * 是否开启将N毫秒内的所有线程聚合到一起查询
+     * 是否开启将N毫秒内的多个并发请求攒到一起处理
      *
      * @return true=开启,false=不开启
      */
     boolean batchAggregation() default false;
 
     /**
-     * 批量查询聚合时间（毫秒）
+     * 攒多个并发请求的等待时间（毫秒）
      *
      * @return 将N毫秒内的所有线程聚合到一起查询
      */
-    long batchAggregationTimeMs() default 10L;
+    long batchAggregationMilliseconds() default 10L;
+
+    /**
+     * 超过这个并发请求的数量后，才开始攒批。 否则立即执行
+     *
+     * @return 攒批的并发量最低要求
+     */
+    int batchAggregationMinConcurrentCount() default 1;
 
     /**
      * 注册自定义注解

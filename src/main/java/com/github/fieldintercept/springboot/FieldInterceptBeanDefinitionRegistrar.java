@@ -35,7 +35,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     private String[] beanBasePackages = {};
     private boolean parallelQuery;
     private int parallelQueryMaxThreads;
-    private long batchAggregationTimeMs;
+    private long batchAggregationMilliseconds;
+    private int batchAggregationMinConcurrentCount;
     private boolean batchAggregation;
     private Class<? extends Annotation>[] myAnnotations = new Class[0];
     private ListableBeanFactory beanFactory;
@@ -79,7 +80,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
                     dispatchAop.setConfigurableEnvironment(configurableEnvironment);
                     dispatchAop.setSkipFieldClassPredicate(type -> beanFactory.getBeanNamesForType(type, true, false).length > 0);
                     dispatchAop.setBatchAggregation(batchAggregation);
-                    dispatchAop.setBatchAggregationTimeMs(batchAggregationTimeMs);
+                    dispatchAop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
+                    dispatchAop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
                     if (parallelQuery) {
                         ExecutorService taskExecutor = taskExecutor();
                         dispatchAop.setTaskExecutor(taskExecutor::submit);
@@ -150,7 +152,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         this.parallelQuery = attributes.getBoolean("parallelQuery");
         this.parallelQueryMaxThreads = attributes.getNumber("parallelQueryMaxThreads").intValue();
         this.myAnnotations = (Class<? extends Annotation>[]) attributes.getClassArray("myAnnotations");
-        this.batchAggregationTimeMs = attributes.getNumber("batchAggregationTimeMs").longValue();
+        this.batchAggregationMilliseconds = attributes.getNumber("batchAggregationMilliseconds").longValue();
+        this.batchAggregationMinConcurrentCount = attributes.getNumber("batchAggregationMinConcurrentCount").intValue();
         this.batchAggregation = attributes.getBoolean("batchAggregation");
     }
 

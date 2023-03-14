@@ -3,7 +3,6 @@ package com.github.fieldintercept;
 import com.github.fieldintercept.entity.Const;
 import com.github.fieldintercept.entity.Department;
 
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -13,10 +12,11 @@ public class MainTest {
 
         ReturnFieldDispatchAop dispatchAop = new ReturnFieldDispatchAop(Const.BEAN_FACTORY);
         dispatchAop.setBatchAggregation(true);
-        dispatchAop.setBatchAggregationTimeMs(1000);
+        dispatchAop.setBatchAggregationMilliseconds(3000);
+        dispatchAop.setBatchAggregationMinConcurrentCount(1);
         dispatchAop.setTaskExecutor(executorService::submit);
 
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 5; i++) {
             new Thread(){
                 @Override
                 public void run() {

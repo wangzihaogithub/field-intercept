@@ -6,8 +6,10 @@ import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.annotation.RouterFieldConsumer;
 import com.github.fieldintercept.util.BeanMap;
 import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +21,12 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.*;
 import java.time.temporal.TemporalAccessor;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
@@ -61,6 +66,8 @@ public class ReturnFieldDispatchAop {
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition condition = lock.newCondition();
     private final AtomicReference<Thread> pendingSignalThreadRef = new AtomicReference<>();
+    private final LongAdder concurrentThreadCounter = new LongAdder();
+    private final Map<Thread, AtomicInteger> concurrentThreadMap = new ConcurrentHashMap<>();
     private final Map<Class, Boolean> typeBasicCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
@@ -83,8 +90,9 @@ public class ReturnFieldDispatchAop {
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
     private Predicate<Class> skipFieldClassPredicate = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtils.findAnnotation(type, SPRING_INDEXED_ANNOTATION) != null;
-    private long batchAggregationTimeMs = 10;
+    private long batchAggregationMilliseconds = 10;
     private boolean batchAggregation;
+    private int batchAggregationMinConcurrentCount = 1;
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
         this.biConsumerFunction = map::get;
@@ -119,22 +127,44 @@ public class ReturnFieldDispatchAop {
     }
 
     public void autowiredFieldValue(Object... result) {
+        before();
         try {
             returningAfter(null, result);
         } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException ignored) {
+        } finally {
+            after();
         }
     }
 
     public <T> T autowiredFieldValue(T result) {
+        before();
         try {
             returningAfter(null, result);
         } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException ignored) {
+        } finally {
+            after();
         }
         return result;
     }
 
     protected Object objectId(Object object) {
         return System.identityHashCode(object);
+    }
+
+    @Before(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
+    public void before() {
+        if (concurrentThreadMap.computeIfAbsent(Thread.currentThread(), e -> new AtomicInteger()).getAndIncrement() == 0) {
+            concurrentThreadCounter.increment();
+        }
+    }
+
+    @After(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
+    public void after() {
+        Thread currentThread = Thread.currentThread();
+        if (concurrentThreadMap.get(currentThread).decrementAndGet() == 0) {
+            concurrentThreadCounter.decrement();
+            concurrentThreadMap.remove(currentThread);
+        }
     }
 
     @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)",
@@ -537,6 +567,10 @@ public class ReturnFieldDispatchAop {
         if (!batchAggregation) {
             return false;
         }
+        long concurrentThreadCount = concurrentThreadCounter.sum();
+        if (concurrentThreadCount <= batchAggregationMinConcurrentCount) {
+            return false;
+        }
         if (joinPoint == null) {
             return true;
         }
@@ -554,12 +588,20 @@ public class ReturnFieldDispatchAop {
         }
     }
 
-    public void setBatchAggregationTimeMs(long batchAggregationTimeMs) {
-        this.batchAggregationTimeMs = batchAggregationTimeMs;
+    public void setBatchAggregationMilliseconds(long batchAggregationMilliseconds) {
+        this.batchAggregationMilliseconds = batchAggregationMilliseconds;
     }
 
-    public long getBatchAggregationTimeMs() {
-        return batchAggregationTimeMs;
+    public long getBatchAggregationMilliseconds() {
+        return batchAggregationMilliseconds;
+    }
+
+    public void setBatchAggregationMinConcurrentCount(int batchAggregationMinConcurrentCount) {
+        this.batchAggregationMinConcurrentCount = batchAggregationMinConcurrentCount;
+    }
+
+    public int getBatchAggregationMinConcurrentCount() {
+        return batchAggregationMinConcurrentCount;
     }
 
     private void pending(JoinPoint joinPoint, Object returnResult) throws InterruptedException {
@@ -635,7 +677,7 @@ public class ReturnFieldDispatchAop {
                 try {
                     Future future = aop.signalAll();
                     long executeTime = System.currentTimeMillis() - start;
-                    long sleepTime = aop.getBatchAggregationTimeMs() - executeTime;
+                    long sleepTime = aop.getBatchAggregationMilliseconds() - executeTime;
                     if (sleepTime > 1) {
                         if (future == null || future.isDone()) {
                             if (aop.pendingList.isEmpty()) {
