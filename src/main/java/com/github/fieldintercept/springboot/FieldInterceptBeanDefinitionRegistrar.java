@@ -17,11 +17,13 @@ import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
 import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.core.type.AnnotationMetadata;
 
 import java.lang.annotation.Annotation;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -83,8 +85,13 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
                     dispatchAop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
                     dispatchAop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
                     if (parallelQuery) {
+                        TaskDecorator decorator = taskDecorator();
                         ExecutorService taskExecutor = taskExecutor();
-                        dispatchAop.setTaskExecutor(taskExecutor::submit);
+                        if (decorator != null) {
+                            dispatchAop.setTaskExecutor(e -> taskExecutor.submit(decorator.decorate(e)));
+                        } else {
+                            dispatchAop.setTaskExecutor(taskExecutor::submit);
+                        }
                     } else {
                         dispatchAop.setTaskExecutor(null);
                     }
@@ -103,6 +110,14 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
                     return dispatchAop;
                 });
         definitionRegistry.registerBeanDefinition(BEAN_NAME_RETURN_FIELD_DISPATCH_AOP, builder.getBeanDefinition());
+    }
+
+    private TaskDecorator taskDecorator() {
+        Map<String, TaskDecorator> decoratorMap = beanFactory.getBeansOfType(TaskDecorator.class);
+        if (decoratorMap.isEmpty()) {
+            return null;
+        }
+        return decoratorMap.values().iterator().next();
     }
 
     public void registerBeanDefinitionsEnumFieldIntercept() {
