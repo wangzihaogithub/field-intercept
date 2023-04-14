@@ -617,9 +617,6 @@ public class ReturnFieldDispatchAop {
      * @throws IllegalAccessException
      */
     protected Object getFieldValue(Field field, Object target) throws IllegalAccessException {
-        if (target == null) {
-            return null;
-        }
 //        field.setAccessible(true);
         return field.get(target);
     }
