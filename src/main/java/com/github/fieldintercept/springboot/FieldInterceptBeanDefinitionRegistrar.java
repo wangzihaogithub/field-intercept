@@ -114,10 +114,18 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     private TaskDecorator taskDecorator() {
         Map<String, TaskDecorator> decoratorMap = beanFactory.getBeansOfType(TaskDecorator.class);
-        if (decoratorMap.isEmpty()) {
-            return null;
+        switch (decoratorMap.size()) {
+            case 0: {
+                return null;
+            }
+            case 1: {
+                return decoratorMap.values().iterator().next();
+            }
+            default: {
+                // need use @Primary
+                return beanFactory.getBean(TaskDecorator.class);
+            }
         }
-        return decoratorMap.values().iterator().next();
     }
 
     public void registerBeanDefinitionsEnumFieldIntercept() {

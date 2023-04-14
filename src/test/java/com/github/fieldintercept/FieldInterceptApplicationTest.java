@@ -8,7 +8,11 @@ import com.github.fieldintercept.entity.EnumDBFieldConsumer;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
@@ -34,6 +38,30 @@ public class FieldInterceptApplicationTest {
         ApplyOrder applyOrder = applyOrderService.getById();
 
         System.out.println("applyOrder = " + applyOrder);
+    }
+
+    @Configuration
+    public static class Config{
+        @Bean
+        public TaskDecorator taskDecorator1(){
+            return new TaskDecorator() {
+                @Override
+                public Runnable decorate(Runnable runnable) {
+                    return runnable;
+                }
+            };
+        }
+
+        @Primary
+        @Bean
+        public TaskDecorator taskDecorator2(){
+            return new TaskDecorator() {
+                @Override
+                public Runnable decorate(Runnable runnable) {
+                    return runnable;
+                }
+            };
+        }
     }
 
     @Service
