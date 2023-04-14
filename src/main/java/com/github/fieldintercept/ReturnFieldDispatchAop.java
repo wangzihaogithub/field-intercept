@@ -68,24 +68,24 @@ public class ReturnFieldDispatchAop {
     private final AtomicReference<Thread> pendingSignalThreadRef = new AtomicReference<>();
     private final LongAdder concurrentThreadCounter = new LongAdder();
     private final Map<Thread, AtomicInteger> concurrentThreadMap = new ConcurrentHashMap<>();
-    private final Map<Class, Boolean> typeBasicCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+    private final LinkedHashMap<Class, Boolean> typeBasicCacheMap = new LinkedHashMap<Class, Boolean>(16) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 100;
         }
-    });
-    private final Map<Class, Boolean> typeEntryCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
+    };
+    private final Map<Class, Boolean> typeEntryCacheMap = new LinkedHashMap<Class, Boolean>(64) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 200;
+        }
+    };
+    private final Map<Class, Boolean> typeMultipleCacheMap = new LinkedHashMap<Class, Boolean>(16) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 100;
         }
-    });
-    private final Map<Class, Boolean> typeMultipleCacheMap = Collections.synchronizedMap(new LinkedHashMap<Class, Boolean>(16, 0.65F, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 100;
-        }
-    });
+    };
     private final Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
     private Function<Runnable, Future> taskExecutor;
     private ConfigurableEnvironment configurableEnvironment;
@@ -102,7 +102,7 @@ public class ReturnFieldDispatchAop {
         this.biConsumerFunction = biConsumerFunction;
     }
 
-    public static String getMyAnnotationConsumerName(Class<? extends Annotation> myAnnotationClass) {
+    public String getMyAnnotationConsumerName(Class<? extends Annotation> myAnnotationClass) {
         return myAnnotationClass.getSimpleName();
     }
 
@@ -130,7 +130,8 @@ public class ReturnFieldDispatchAop {
         before();
         try {
             returningAfter(null, result);
-        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException ignored) {
+        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException e) {
+            sneakyThrows(e);
         } finally {
             after();
         }
@@ -140,7 +141,8 @@ public class ReturnFieldDispatchAop {
         before();
         try {
             returningAfter(null, result);
-        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException ignored) {
+        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException e) {
+            sneakyThrows(e);
         } finally {
             after();
         }
@@ -152,14 +154,14 @@ public class ReturnFieldDispatchAop {
     }
 
     @Before(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
-    public void before() {
+    protected void before() {
         if (concurrentThreadMap.computeIfAbsent(Thread.currentThread(), e -> new AtomicInteger()).getAndIncrement() == 0) {
             concurrentThreadCounter.increment();
         }
     }
 
     @After(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
-    public void after() {
+    protected void after() {
         Thread currentThread = Thread.currentThread();
         if (concurrentThreadMap.get(currentThread).decrementAndGet() == 0) {
             concurrentThreadCounter.decrement();
@@ -170,7 +172,9 @@ public class ReturnFieldDispatchAop {
     @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)",
             returning = "result")
     protected void returningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
-        log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
+        if (log.isTraceEnabled()) {
+            log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
+        }
         if (isNeedPending(joinPoint, result)) {
             pending(joinPoint, result);
         } else {
@@ -218,7 +222,7 @@ public class ReturnFieldDispatchAop {
                 try {
                     o.end(joinPoint, allFieldList, result);
                 } catch (Exception e) {
-                    log.warn("aopFieldIntercept end error = {}, intercept = {}", e, o, e);
+                    sneakyThrows(e);
                 }
             });
         }
@@ -248,26 +252,9 @@ public class ReturnFieldDispatchAop {
                 }
             }
             if (consumer == null) {
-                log.warn("autowired consumer '{}' not found", key);
-                continue;
+                throw new IllegalArgumentException("ReturnFieldDispatchAop autowired consumer '" + key + "' not found!");
             }
-            FieldIntercept finalFieldIntercept = fieldIntercept;
-            callableList.add(() -> {
-                try {
-                    if (finalFieldIntercept != null) {
-                        finalFieldIntercept.stepBegin(step, joinPoint, fieldList, result);
-                    }
-                    log.trace("start Consumer ={}, value={}", consumer, fieldList);
-                    consumer.accept(joinPoint, fieldList);
-                    log.trace("end Consumer ={}", consumer);
-                } catch (Exception e) {
-                    log.error("error Consumer ={},message={}", consumer, e.getMessage(), e);
-                } finally {
-                    if (finalFieldIntercept != null) {
-                        finalFieldIntercept.stepEnd(step, joinPoint, fieldList, result);
-                    }
-                }
-            });
+            callableList.add(new AutowiredRunnable(this, joinPoint, result, step, fieldList, key, consumer));
         }
 
         // 执行
@@ -305,6 +292,91 @@ public class ReturnFieldDispatchAop {
         return allFieldList;
     }
 
+    public static class AutowiredRunnable implements Runnable {
+        private final static Logger log = LoggerFactory.getLogger(AutowiredRunnable.class);
+        private final ReturnFieldDispatchAop aop;
+        private final JoinPoint joinPoint;
+        private final Object result;
+        private final int step;
+        private final List<CField> fieldList;
+        private final String consumerName;
+        private final BiConsumer<JoinPoint, List<CField>> consumer;
+
+        public AutowiredRunnable(ReturnFieldDispatchAop aop, JoinPoint joinPoint, Object result,
+                                 int step, List<CField> fieldList,
+                                 String consumerName, BiConsumer<JoinPoint, List<CField>> consumer) {
+            this.aop = aop;
+            this.joinPoint = joinPoint;
+            this.result = result;
+            this.step = step;
+            this.fieldList = fieldList;
+            this.consumerName = consumerName;
+            this.consumer = consumer;
+        }
+
+        @Override
+        public String toString() {
+            return "AutowiredRunnable{" +
+                    consumerName +
+                    '}';
+        }
+
+        public ReturnFieldDispatchAop getAop() {
+            return aop;
+        }
+
+        public JoinPoint getJoinPoint() {
+            return joinPoint;
+        }
+
+        public Object getResult() {
+            return result;
+        }
+
+        public int getStep() {
+            return step;
+        }
+
+        public List<CField> getFieldList() {
+            return fieldList;
+        }
+
+        public String getConsumerName() {
+            return consumerName;
+        }
+
+        public BiConsumer<JoinPoint, List<CField>> getConsumer() {
+            return consumer;
+        }
+
+        @Override
+        public void run() {
+            FieldIntercept fieldIntercept = consumer instanceof FieldIntercept ? (FieldIntercept) consumer : null;
+            try {
+                if (fieldIntercept != null) {
+                    fieldIntercept.stepBegin(step, joinPoint, fieldList, result);
+                }
+                boolean traceEnabled = log.isTraceEnabled();
+                if (traceEnabled) {
+                    log.trace("start Consumer ={}, value={}", consumer, fieldList);
+                }
+                consumer.accept(joinPoint, fieldList);
+                if (traceEnabled) {
+                    log.trace("end Consumer ={}", consumer);
+                }
+            } catch (Exception e) {
+                if (log.isErrorEnabled()) {
+                    log.error("error Consumer ={},message={}", consumer, e.getMessage(), e);
+                }
+                aop.sneakyThrows(e);
+            } finally {
+                if (fieldIntercept != null) {
+                    fieldIntercept.stepEnd(step, joinPoint, fieldList, result);
+                }
+            }
+        }
+    }
+
     protected boolean isMultiple(Class type) {
         return typeMultipleCacheMap.computeIfAbsent(type, e -> {
             if (Iterable.class.isAssignableFrom(e)) {
@@ -313,22 +385,18 @@ public class ReturnFieldDispatchAop {
             if (Map.class.isAssignableFrom(e)) {
                 return true;
             }
-            if (e.isArray()) {
-                return true;
-            }
-            return false;
+            return e.isArray();
         });
     }
 
     protected boolean isBasicType(Class type) {
-        return typeBasicCacheMap.computeIfAbsent(type, e ->
-                e.isPrimitive()
-                        || e == String.class
-                        || Type.class.isAssignableFrom(e)
-                        || Number.class.isAssignableFrom(e)
-                        || Date.class.isAssignableFrom(e)
-                        || TemporalAccessor.class.isAssignableFrom(e)
-                        || e.isEnum());
+        return typeBasicCacheMap.computeIfAbsent(type, e -> e.isPrimitive()
+                || e == String.class
+                || Type.class.isAssignableFrom(e)
+                || Number.class.isAssignableFrom(e)
+                || Date.class.isAssignableFrom(e)
+                || TemporalAccessor.class.isAssignableFrom(e)
+                || e.isEnum());
     }
 
     protected boolean isEntity(Class type) {
@@ -430,7 +498,9 @@ public class ReturnFieldDispatchAop {
                     beanHandler = new BeanMap(bean);
                 }
                 if (!beanHandler.containsKey(routerFieldConsumer.routerField())) {
-                    log.warn("RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerFieldConsumer.routerField(), bean);
+                    if (log.isWarnEnabled()) {
+                        log.warn("RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerFieldConsumer.routerField(), bean);
+                    }
                 }
                 Object routerFieldData = beanHandler.get(routerFieldConsumer.routerField());
                 String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
@@ -504,8 +574,8 @@ public class ReturnFieldDispatchAop {
                     Object fieldData = getFieldValue(field, bean);
                     collectBean(fieldData, groupCollectMap);
                     continue;
-                } catch (Exception ig) {
-                    //skip
+                } catch (Exception e) {
+                    sneakyThrows(e);
                 }
             }
 
@@ -522,11 +592,10 @@ public class ReturnFieldDispatchAop {
                         continue;
                     }
                     collectBean(fieldData, groupCollectMap);
-                } catch (Exception ig) {
-                    //skip
+                } catch (Exception e) {
+                    sneakyThrows(e);
                 }
             }
-
         }
     }
 
@@ -642,7 +711,8 @@ public class ReturnFieldDispatchAop {
                 try {
                     collectAndAutowired(null, poll);
                     condition.signalAll();
-                } catch (ExecutionException | InterruptedException | InvocationTargetException | IllegalAccessException ignored) {
+                } catch (ExecutionException | InterruptedException | InvocationTargetException | IllegalAccessException e) {
+                    sneakyThrows(e);
                 } finally {
                     lock.unlock();
                 }
@@ -690,9 +760,13 @@ public class ReturnFieldDispatchAop {
                 } catch (InterruptedException e) {
                     return;
                 } catch (ExecutionException | InvocationTargetException | IllegalAccessException e) {
-                    log.warn("collectAndAutowired Execution error = {}", e, e);
+                    if (log.isWarnEnabled()) {
+                        log.warn("collectAndAutowired Execution error = {}", e, e);
+                    }
                 } catch (Throwable e) {
-                    log.warn("collectAndAutowired Throwable error = {}", e, e);
+                    if (log.isWarnEnabled()) {
+                        log.warn("collectAndAutowired Throwable error = {}", e, e);
+                    }
                 }
             }
         }
@@ -724,4 +798,7 @@ public class ReturnFieldDispatchAop {
         }
     }
 
+    protected <E extends Throwable> void sneakyThrows(Throwable t) throws E {
+        throw (E) t;
+    }
 }

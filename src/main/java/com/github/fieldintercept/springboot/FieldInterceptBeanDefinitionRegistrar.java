@@ -112,7 +112,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         definitionRegistry.registerBeanDefinition(BEAN_NAME_RETURN_FIELD_DISPATCH_AOP, builder.getBeanDefinition());
     }
 
-    private TaskDecorator taskDecorator() {
+    protected TaskDecorator taskDecorator() {
         Map<String, TaskDecorator> decoratorMap = beanFactory.getBeansOfType(TaskDecorator.class);
         switch (decoratorMap.size()) {
             case 0: {
