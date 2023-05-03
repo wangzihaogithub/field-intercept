@@ -67,7 +67,7 @@
             
 4.  业务数据和逻辑就进去了，
 
-5.  详细看 /src/test/java/包下有代码示例 
+5.  详细看示例项目  https://github.com/wangzihaogithub/field-intercept-example
         
 #### 使用说明
 
