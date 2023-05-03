@@ -14,6 +14,6 @@ public @interface ReturnFieldAop {
      *
      * @return true=开启,false=不开启
      */
-    boolean batchAggregation() default true;
+    boolean batchAggregation() default false;
 
 }

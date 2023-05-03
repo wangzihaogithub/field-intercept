@@ -45,6 +45,7 @@ public class CField {
     private Boolean existPlaceholder;
     private List<String> placeholders;
     private Class genericType;
+    private Object value;
 
     public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation) {
         this.consumerName = consumerName;
@@ -129,7 +130,7 @@ public class CField {
     }
 
     public Object getValue() {
-        return beanHandler.get(field.getName());
+        return setValue ? value : beanHandler.get(field.getName());
     }
 
     public void setValue(Object object) {
@@ -153,6 +154,7 @@ public class CField {
         }
         if (value != null) {
             if (beanHandler.set(field.getName(), value)) {
+                this.value = value;
                 this.setValue = true;
             }
         }
@@ -266,28 +268,16 @@ public class CField {
 
     @Override
     public boolean equals(Object obj) {
-        if (obj instanceof CField) {
-            CField target = (CField) obj;
-            return bean == target.bean
-                    && Objects.equals(keyData, target.keyData)
-                    && Objects.equals(consumerName, target.consumerName)
-                    && Objects.equals(field.getName(), target.field.getName());
-        }
-        return false;
+        return this == obj;
     }
 
     @Override
     public int hashCode() {
-        int result = 1;
-        result = 31 * result + System.identityHashCode(bean);
-        result = 31 * result + (keyData == null ? 0 : keyData.hashCode());
-        result = 31 * result + (consumerName == null ? 0 : consumerName.hashCode());
-        result = 31 * result + field.getName().hashCode();
-        return result;
+        return super.hashCode();
     }
 
     @Override
     public String toString() {
-        return bean.getClass().getSimpleName() + "." + field.getName() + " = " + beanHandler.get(field.getName());
+        return bean.getClass().getSimpleName() + "." + field.getName() + " = " + getValue();
     }
 }

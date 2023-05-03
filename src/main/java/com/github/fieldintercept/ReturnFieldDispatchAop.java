@@ -5,6 +5,7 @@ import com.github.fieldintercept.annotation.FieldConsumer;
 import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.annotation.RouterFieldConsumer;
 import com.github.fieldintercept.util.BeanMap;
+import com.github.fieldintercept.util.FieldCompletableFuture;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.AfterReturning;
@@ -176,13 +177,21 @@ public class ReturnFieldDispatchAop {
             log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
         }
         if (isNeedPending(joinPoint, result)) {
-            pending(joinPoint, result);
+            addPendingList(result);
+            if (!(result instanceof FieldCompletableFuture)) {
+                pending();
+            }
         } else {
             collectAndAutowired(joinPoint, result);
         }
     }
 
     protected void collectAndAutowired(JoinPoint joinPoint, Object result) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
+        if (result == null) {
+            return;
+        }
+
+        List<FieldCompletableFuture<?>> completableFutureList = new LinkedList<>();
         Map<String, List<CField>> groupCollectMap = new LinkedHashMap<>();
 
         Map<String, FieldIntercept> aopFieldInterceptMap = new LinkedHashMap<>();
@@ -195,7 +204,7 @@ public class ReturnFieldDispatchAop {
         try {
             while (true) {
                 //收集返回值中的所有实体类
-                collectBean(next, groupCollectMap);
+                collectBean(next, groupCollectMap, completableFutureList);
                 if (groupCollectMap.isEmpty()) {
                     break;
                 }
@@ -216,21 +225,23 @@ public class ReturnFieldDispatchAop {
                 groupCollectMap.clear();
                 step++;
             }
-
         } finally {
-            aopFieldInterceptMap.values().forEach(o -> {
+            for (FieldCompletableFuture<?> future : completableFutureList) {
+                future.complete();
+            }
+            for (FieldIntercept intercept : aopFieldInterceptMap.values()) {
                 try {
-                    o.end(joinPoint, allFieldList, result);
+                    intercept.end(joinPoint, allFieldList, result);
                 } catch (Exception e) {
                     sneakyThrows(e);
                 }
-            });
+            }
         }
     }
 
     protected List<CField> autowired(JoinPoint joinPoint, Map<String, List<CField>> groupCollectMap, Map<String, FieldIntercept> aopFieldInterceptMap, int step, Object result) throws ExecutionException, InterruptedException {
         //  通知实现
-        List<Runnable> callableList = new ArrayList<>();
+        List<Runnable> callableList = new LinkedList<>();
         List<CField> allFieldList = new ArrayList<>();
         for (Map.Entry<String, List<CField>> entry : groupCollectMap.entrySet()) {
             String key = entry.getKey();
@@ -259,18 +270,32 @@ public class ReturnFieldDispatchAop {
 
         // 执行
         try {
-            Function<Runnable, Future> taskExecutor = this.taskExecutor;
-            if (taskExecutor != null) {
-                List<Future> futureList = new ArrayList<>();
-                for (Runnable runnable : callableList) {
-                    futureList.add(taskExecutor.apply(runnable));
+            switch (callableList.size()) {
+                case 0: {
+                    break;
                 }
-                for (Future future : futureList) {
-                    future.get();
+                case 1: {
+                    callableList.get(0).run();
+                    break;
                 }
-            } else {
-                for (Runnable callable : callableList) {
-                    callable.run();
+                default: {
+                    Function<Runnable, Future> taskExecutor = this.taskExecutor;
+                    if (taskExecutor != null) {
+                        List<Future> futureList = new ArrayList<>();
+                        Runnable blockOnCurrentThread = callableList.remove(0);
+                        for (Runnable runnable : callableList) {
+                            futureList.add(taskExecutor.apply(runnable));
+                        }
+                        blockOnCurrentThread.run();
+                        for (Future f : futureList) {
+                            f.get();
+                        }
+                    } else {
+                        for (Runnable callable : callableList) {
+                            callable.run();
+                        }
+                    }
+                    break;
                 }
             }
         } finally {
@@ -280,14 +305,13 @@ public class ReturnFieldDispatchAop {
                         continue;
                     }
                     //解析占位符
-                    String value = cField.resolvePlaceholders(configurableEnvironment, cField.getBeanHandler());
-                    if (value == null) {
+                    String resolve = cField.resolvePlaceholders(configurableEnvironment, cField.getBeanHandler());
+                    if (resolve == null) {
                         continue;
                     }
-                    cField.setValue(value);
+                    cField.setValue(resolve);
                 }
             }
-            callableList.clear();
         }
         return allFieldList;
     }
@@ -433,8 +457,14 @@ public class ReturnFieldDispatchAop {
      * @param groupCollectMap 分组收集器
      */
     protected void collectBean(Object bean,
-                               Map<String, List<CField>> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
+                               Map<String, List<CField>> groupCollectMap,
+                               List<FieldCompletableFuture<?>> completableFutureList) throws InvocationTargetException, IllegalAccessException {
         if (bean == null || bean instanceof Class) {
+            return;
+        }
+        if (bean instanceof FieldCompletableFuture) {
+            completableFutureList.add((FieldCompletableFuture) bean);
+            collectBean(((FieldCompletableFuture<?>) bean).value(), groupCollectMap, completableFutureList);
             return;
         }
         Class<?> rootClass = bean.getClass();
@@ -444,7 +474,7 @@ public class ReturnFieldDispatchAop {
 
         if (bean instanceof Iterable) {
             for (Object each : (Iterable) bean) {
-                collectBean(each, groupCollectMap);
+                collectBean(each, groupCollectMap, completableFutureList);
             }
             return;
         }
@@ -452,14 +482,14 @@ public class ReturnFieldDispatchAop {
         if (rootClass.isArray()) {
             for (int i = 0, length = Array.getLength(bean); i < length; i++) {
                 Object each = Array.get(bean, i);
-                collectBean(each, groupCollectMap);
+                collectBean(each, groupCollectMap, completableFutureList);
             }
             return;
         }
 
         if (bean instanceof Map) {
             for (Object each : ((Map) bean).values()) {
-                collectBean(each, groupCollectMap);
+                collectBean(each, groupCollectMap, completableFutureList);
             }
             return;
         }
@@ -473,7 +503,7 @@ public class ReturnFieldDispatchAop {
             if (isRootEntity && readMethod != null && readMethod.getDeclaredAnnotations().length > 0
                     && AnnotationUtils.findAnnotation(readMethod, ReturnFieldAop.class) != null) {
                 Object fieldData = readMethod.invoke(bean);
-                collectBean(fieldData, groupCollectMap);
+                collectBean(fieldData, groupCollectMap, completableFutureList);
                 continue;
             }
 
@@ -572,7 +602,7 @@ public class ReturnFieldDispatchAop {
                 try {
                     // 防止触发 getter方法, 忽略private, 强行取字段值
                     Object fieldData = getFieldValue(field, bean);
-                    collectBean(fieldData, groupCollectMap);
+                    collectBean(fieldData, groupCollectMap, completableFutureList);
                     continue;
                 } catch (Exception e) {
                     sneakyThrows(e);
@@ -591,7 +621,7 @@ public class ReturnFieldDispatchAop {
                     if (skipFieldClassPredicate.test(fieldDataClass)) {
                         continue;
                     }
-                    collectBean(fieldData, groupCollectMap);
+                    collectBean(fieldData, groupCollectMap, completableFutureList);
                 } catch (Exception e) {
                     sneakyThrows(e);
                 }
@@ -670,11 +700,14 @@ public class ReturnFieldDispatchAop {
         return batchAggregationMinConcurrentCount;
     }
 
-    private void pending(JoinPoint joinPoint, Object returnResult) throws InterruptedException {
+    protected void addPendingList(Object returnResult) {
         startPendingSignalThreadIfNeed();
         synchronized (pendingList) {
             pendingList.add(returnResult);
         }
+    }
+
+    protected void pending() throws InterruptedException {
         lock.lock();
         try {
             condition.await();

@@ -74,12 +74,15 @@ public class CompositeFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchA
     public void accept(JoinPoint joinPoint, List<CField> cFields) {
         List<CField> nameFields = cFields.stream().filter(e -> !e.existPlaceholder() && isString(e))
                 .collect(Collectors.toList());
+        List<CField> beanFields;
         if (nameFields.size() > 0) {
             keyNameFieldIntercept.accept(joinPoint, nameFields);
+            beanFields = new ArrayList<>(cFields);
+            beanFields.removeAll(nameFields);
+        } else {
+            beanFields = cFields;
         }
 
-        List<CField> beanFields = new ArrayList<>(cFields);
-        beanFields.removeAll(nameFields);
         if (beanFields.size() > 0) {
             keyValueFieldIntercept.accept(joinPoint, beanFields);
         }

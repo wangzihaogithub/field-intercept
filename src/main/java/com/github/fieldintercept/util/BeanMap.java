@@ -171,6 +171,9 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                 continue;
             }
             String eachFieldName = Introspector.decapitalize(name.substring(prefix.length()));
+            if (eachFieldName.isEmpty()) {
+                continue;
+            }
             methodMap.put(eachFieldName, method);
         }
         return methodMap;
@@ -203,6 +206,9 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                     continue;
                 }
                 String eachFieldName = Introspector.decapitalize(name.substring(prefix.length()));
+                if (eachFieldName.isEmpty()) {
+                    continue;
+                }
                 methodMap.put(eachFieldName, method);
             }
         }
