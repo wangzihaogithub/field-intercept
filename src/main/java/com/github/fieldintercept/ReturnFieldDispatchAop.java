@@ -186,6 +186,10 @@ public class ReturnFieldDispatchAop {
         }
     }
 
+    protected boolean isInSignalThread() {
+        return pendingSignalThreadRef.get() == Thread.currentThread();
+    }
+
     protected void collectAndAutowired(JoinPoint joinPoint, Object result) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
         if (result == null) {
             return;
@@ -282,11 +286,13 @@ public class ReturnFieldDispatchAop {
                     Function<Runnable, Future> taskExecutor = this.taskExecutor;
                     if (taskExecutor != null) {
                         List<Future> futureList = new ArrayList<>();
-                        Runnable blockOnCurrentThread = callableList.remove(0);
+                        Runnable blockOnCurrentThread = isInSignalThread() ? null : callableList.remove(0);
                         for (Runnable runnable : callableList) {
                             futureList.add(taskExecutor.apply(runnable));
                         }
-                        blockOnCurrentThread.run();
+                        if (blockOnCurrentThread != null) {
+                            blockOnCurrentThread.run();
+                        }
                         for (Future f : futureList) {
                             f.get();
                         }
@@ -720,7 +726,7 @@ public class ReturnFieldDispatchAop {
         return !pendingList.isEmpty();
     }
 
-    private Future signalAll() throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
+    protected Future signalAll() throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
         List<Object> poll = pollPending();
         if (poll.isEmpty()) {
             return null;
