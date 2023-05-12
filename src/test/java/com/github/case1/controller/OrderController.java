@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @RequestMapping("/order")
 @RestController
@@ -44,8 +45,10 @@ public class OrderController {
      * @return
      */
     @RequestMapping("/selectList")
-    public List<OrderSelectListResp> selectList() {
-        return orderService.selectList();
+    public CompletableFuture<List<OrderSelectListResp>> selectList() {
+        return orderService.selectList().whenComplete((e,t)->{
+            System.out.println("e = " + e);
+        });
     }
 
 

@@ -182,7 +182,22 @@ public class ReturnFieldDispatchAop {
                 pending();
             }
         } else {
-            collectAndAutowired(joinPoint, result);
+            if (result instanceof FieldCompletableFuture) {
+                taskExecutor.apply(() -> {
+                    FieldCompletableFuture<?> future = (FieldCompletableFuture) result;
+                    try {
+                        collectAndAutowired(joinPoint, result);
+                    } catch (ExecutionException | InvocationTargetException e) {
+                        future.completeExceptionally(e.getCause());
+                    } catch (InterruptedException e) {
+                        future.complete();
+                    } catch (Throwable e) {
+                        future.completeExceptionally(e);
+                    }
+                });
+            } else {
+                collectAndAutowired(joinPoint, result);
+            }
         }
     }
 

@@ -9,7 +9,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * -Xmx556m -Xms556m -XX:+UseG1GC
  */
 @EnableFieldIntercept(
-        parallelQuery = false,
         beanBasePackages = "com.github.case1",
         myAnnotations = {EnumDBFieldConsumer.class}
 )
