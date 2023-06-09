@@ -219,7 +219,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
                 T key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
-                        keyDataList = new LinkedHashSet<>();
+                        keyDataList = new ArrayList<>();
                     }
                     keyDataList.add(key);
                 }
@@ -232,7 +232,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
                 T key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
-                        keyDataList = new LinkedHashSet<>();
+                        keyDataList = new ArrayList<>();
                     }
                     keyDataList.add(key);
                 }
@@ -245,7 +245,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
                 T key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
-                        keyDataList = new LinkedHashSet<>();
+                        keyDataList = new ArrayList<>();
                     }
                     keyDataList.add(key);
                 }
