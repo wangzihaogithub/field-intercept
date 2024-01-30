@@ -14,14 +14,14 @@ import java.util.function.BiConsumer;
 
 public class Const {
     public static final String CUSTOMER_USER = "CUSTOMER_USER";
-    public static final Map<String, BiConsumer<JoinPoint, List<CField>>> BEAN_FACTORY = newBeanFactory();
+    public static final Map<String, BiConsumer<Object, List<CField>>> BEAN_FACTORY = newBeanFactory();
 
-    private static Map<String, BiConsumer<JoinPoint, List<CField>>> newBeanFactory() {
-        Map<String, BiConsumer<JoinPoint, List<CField>>> beanFactory = new HashMap<>();
+    private static Map<String, BiConsumer<Object, List<CField>>> newBeanFactory() {
+        Map<String, BiConsumer<Object, List<CField>>> beanFactory = new HashMap<>();
         // 枚举
         beanFactory.put(EnumFieldConsumer.NAME, new EnumFieldIntercept());
         // 用户
-        beanFactory.put(CUSTOMER_USER, new KeyValueFieldIntercept<Integer, User>() {
+        beanFactory.put(CUSTOMER_USER, new KeyValueFieldIntercept<Integer, User, Object>() {
             @Override
             public Map<Integer, User> selectValueMapByKeys(Collection<Integer> ids) {
                 Map<Integer, User> databaseMap = new HashMap<>();

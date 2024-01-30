@@ -1,6 +1,7 @@
 package com.github.fieldintercept.annotation;
 
 import com.github.fieldintercept.ReturnFieldDispatchAop;
+import com.github.fieldintercept.springboot.AspectjReturnFieldDispatchAop;
 import com.github.fieldintercept.springboot.FieldInterceptImportSelector;
 import org.springframework.context.annotation.Import;
 
@@ -26,6 +27,13 @@ public @interface EnableFieldIntercept {
      * @return 包路径. 例如 {"com.ig", "com.xx"}
      */
     String[] beanBasePackages() default {};
+
+    /**
+     * 切面对象
+     *
+     * @return
+     */
+    Class<? extends ReturnFieldDispatchAop> aopClass() default AspectjReturnFieldDispatchAop.class;
 
     /**
      * 是否并行查询

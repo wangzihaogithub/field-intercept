@@ -1,10 +1,9 @@
 package com.github.fieldintercept;
 
+import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
 import com.github.fieldintercept.util.ShareThreadMap;
 import com.github.fieldintercept.util.TypeUtil;
-import org.aspectj.lang.JoinPoint;
-import org.springframework.core.annotation.AnnotationUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
@@ -17,7 +16,7 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldIntercept {
+public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint> {
     protected final Class<T> keyClass;
     protected final ShareThreadMap<T, Object> shareThreadMap;
     protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
@@ -181,9 +180,11 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
     }
 
     protected String[] getKeyFieldName(Annotation annotation) {
-        Object keyField = AnnotationUtils.getValue(annotation, "keyField");
+        Object keyField = AnnotationUtil.getValue(annotation, "keyField");
         if (keyField instanceof String[]) {
             return (String[]) keyField;
+        } else if (keyField instanceof String) {
+            return new String[]{(String) keyField};
         } else {
             return null;
         }
@@ -401,7 +402,7 @@ public class KeyNameFieldIntercept<T> implements ReturnFieldDispatchAop.FieldInt
     }
 
     protected String getAnnotationJoinDelimiter(Annotation annotation) {
-        Object joinDelimiter = AnnotationUtils.getValue(annotation, "joinDelimiter");
+        Object joinDelimiter = AnnotationUtil.getValue(annotation, "joinDelimiter");
         if (joinDelimiter == null) {
             return ",";
         } else {

@@ -16,73 +16,6 @@ import java.util.*;
  */
 public class TypeUtil {
 
-    public static boolean isAssignableFrom(Type response, Type request) {
-        if (request == null || response == null) {
-            return false;
-        } else if (request == Object.class || response == Object.class) {
-            return false;
-        } else if (request instanceof Class && response instanceof Class) {
-            return ((Class) request).isAssignableFrom((Class<?>) response)
-                    || ((Class<?>) response).isAssignableFrom((Class<?>) request);
-        } else if (response instanceof ParameterizedType) {
-            return isAssignableFrom(((ParameterizedType) response).getRawType(), request);
-        } else if (response instanceof TypeVariable) {
-            return false;
-        } else if (request instanceof ParameterizedType) {
-            return isAssignableFrom(response, ((ParameterizedType) request).getRawType());
-        } else if (request instanceof TypeVariable) {
-            return false;
-        } else if (request instanceof WildcardType) {
-            Type[] upperBounds = ((WildcardType) request).getUpperBounds();
-            if (upperBounds.length > 0) {
-                return isAssignableFrom(response, upperBounds[0]);
-            } else {
-                return false;
-            }
-        } else if (response instanceof WildcardType) {
-            Type[] upperBounds = ((WildcardType) response).getUpperBounds();
-            if (upperBounds.length > 0) {
-                return isAssignableFrom(request, upperBounds[0]);
-            } else {
-                return false;
-            }
-        } else {
-            return false;
-        }
-    }
-
-    public static Type findGenericSuperType(Class clazz) {
-        Type genericSuperclass = clazz;
-        while (genericSuperclass != null && genericSuperclass != Object.class) {
-            if (genericSuperclass instanceof ParameterizedType) {
-                Type[] actualTypeArguments = ((ParameterizedType) genericSuperclass).getActualTypeArguments();
-                if (actualTypeArguments != null && actualTypeArguments.length > 0) {
-                    genericSuperclass = actualTypeArguments[0];
-                    break;
-                } else {
-                    genericSuperclass = ((ParameterizedType) genericSuperclass).getRawType();
-                }
-            } else if (genericSuperclass == clazz) {
-                genericSuperclass = ((Class) genericSuperclass).getGenericSuperclass();
-            } else if (genericSuperclass instanceof Class) {
-                genericSuperclass = ((Class) genericSuperclass).getGenericSuperclass();
-            } else if (genericSuperclass instanceof WildcardType) {
-                Type[] upperBounds = ((WildcardType) genericSuperclass).getUpperBounds();
-                Type[] lowerBounds = ((WildcardType) genericSuperclass).getLowerBounds();
-                if (upperBounds.length > 0) {
-                    genericSuperclass = upperBounds[0];
-                } else if (lowerBounds.length > 0) {
-                    genericSuperclass = lowerBounds[0];
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-        return genericSuperclass;
-    }
-
     /**
      * 寻找声明的泛型
      *
@@ -157,44 +90,6 @@ public class TypeUtil {
     private static Class<?> fail(Class<?> type, String typeParamName) {
         throw new IllegalStateException(
                 "cannot determine the type of the type parameter '" + typeParamName + "': " + type);
-    }
-
-    /**
-     * 获取泛型
-     *
-     * @param field 字段
-     * @return 泛型
-     */
-    public static Class<?> getGenericType(Field field) {
-        if (field == null) {
-            return null;
-        }
-        if (field.getType().isArray()) {
-            return field.getType().getComponentType();
-        }
-
-        Type genericType = field.getGenericType();
-        if (!(genericType instanceof ParameterizedType)) {
-            return null;
-        }
-
-        Type[] actualTypeArguments = ((ParameterizedType) genericType).getActualTypeArguments();
-        if (actualTypeArguments.length != 1) {
-            return null;
-        }
-
-        Type actualType = actualTypeArguments[0];
-        if (actualType instanceof WildcardType) {
-            Type[] upperBounds = ((WildcardType) actualType).getUpperBounds();
-            if (upperBounds.length > 0 && upperBounds[0] instanceof Class) {
-                return (Class) upperBounds[0];
-            }
-        }
-
-        if (actualType instanceof Class) {
-            return (Class) actualType;
-        }
-        return null;
     }
 
     public static <T> T castIfBeanCast(Object object, Class<T> clazz) {

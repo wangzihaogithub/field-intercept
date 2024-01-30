@@ -1,6 +1,6 @@
 package com.github.fieldintercept;
 
-import org.springframework.core.annotation.AnnotationUtils;
+import com.github.fieldintercept.util.AnnotationUtil;
 
 import java.lang.annotation.Annotation;
 import java.util.*;
@@ -11,7 +11,7 @@ import java.util.function.BiFunction;
  *
  * @author hao
  */
-public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
+public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object, Object> {
     private BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap;
 
     public EnumDBFieldIntercept() {
@@ -75,7 +75,7 @@ public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object>
      * @return 组
      */
     public String[] getGroups(Annotation annotation) {
-        Object value = AnnotationUtils.getValue(annotation);
+        Object value = AnnotationUtil.getValue(annotation);
         if (value instanceof String[]) {
             return (String[]) value;
         } else if (value instanceof String) {

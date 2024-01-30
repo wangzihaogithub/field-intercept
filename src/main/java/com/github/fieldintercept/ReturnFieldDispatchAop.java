@@ -4,18 +4,11 @@ import com.github.fieldintercept.annotation.EnumFieldConsumer;
 import com.github.fieldintercept.annotation.FieldConsumer;
 import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.annotation.RouterFieldConsumer;
+import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
 import com.github.fieldintercept.util.FieldCompletableFuture;
+import com.github.fieldintercept.util.PlatformDependentUtil;
 import org.aspectj.lang.JoinPoint;
-import org.aspectj.lang.annotation.After;
-import org.aspectj.lang.annotation.AfterReturning;
-import org.aspectj.lang.annotation.Aspect;
-import org.aspectj.lang.annotation.Before;
-import org.aspectj.lang.reflect.MethodSignature;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.beans.PropertyDescriptor;
 import java.lang.annotation.Annotation;
@@ -40,10 +33,8 @@ import java.util.stream.Collectors;
  *
  * @author acer01
  */
-@Aspect
-public class ReturnFieldDispatchAop {
-    private final static Logger log = LoggerFactory.getLogger(ReturnFieldDispatchAop.class);
-    private static final Class SPRING_INDEXED_ANNOTATION;
+public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
+    private static final Collection<Class<? extends Annotation>> SPRING_INDEXED_ANNOTATION;
 
     static {
         Class springIndexedAnnotation;
@@ -52,8 +43,16 @@ public class ReturnFieldDispatchAop {
         } catch (ClassNotFoundException e) {
             springIndexedAnnotation = null;
         }
-        SPRING_INDEXED_ANNOTATION = springIndexedAnnotation;
+        SPRING_INDEXED_ANNOTATION = springIndexedAnnotation != null ? Collections.singletonList(springIndexedAnnotation) : null;
     }
+
+    private static final Map<Class<?>, Boolean> SKIP_FIELD_CLASS_CACHE_MAP = Collections.synchronizedMap(new LinkedHashMap<Class<?>, Boolean>((int) ((6 / 0.75F) + 1), 0.75F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Class<?>, Boolean> eldest) {
+            return size() > 6;
+        }
+    });
+    public static Predicate<Class> DEFAULT_SKIP_FIELD_CLASS_PREDICATE = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtil.findDeclaredAnnotation(type, SPRING_INDEXED_ANNOTATION, SKIP_FIELD_CLASS_CACHE_MAP) != null;
 
     /**
      * 实体类包名一样, 就认为是业务实体类
@@ -87,32 +86,66 @@ public class ReturnFieldDispatchAop {
             return size() > 100;
         }
     };
-    private final Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction;
+    protected final AnnotationCache<ReturnFieldAop> returnFieldAopCache = new AnnotationCache<>(ReturnFieldAop.class, Arrays.asList(ReturnFieldAop.class, ReturnFieldAop.Extends.class), 100);
+    protected final AnnotationCache<RouterFieldConsumer> routerFieldConsumerCache = new AnnotationCache<>(RouterFieldConsumer.class, Arrays.asList(RouterFieldConsumer.class, RouterFieldConsumer.Extends.class), 100);
+    protected final AnnotationCache<FieldConsumer> fieldConsumerCache = new AnnotationCache<>(FieldConsumer.class, Arrays.asList(FieldConsumer.class, FieldConsumer.Extends.class), 100);
+    protected final AnnotationCache<EnumFieldConsumer> enumFieldConsumerCache = new AnnotationCache<>(EnumFieldConsumer.class, Arrays.asList(EnumFieldConsumer.class, EnumFieldConsumer.Extends.class), 100);
+
+    private Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider;
     private Function<Runnable, Future> taskExecutor;
-    private ConfigurableEnvironment configurableEnvironment;
-    private Predicate<Class> skipFieldClassPredicate = type -> SPRING_INDEXED_ANNOTATION != null && AnnotationUtils.findAnnotation(type, SPRING_INDEXED_ANNOTATION) != null;
+    private Object configurableEnvironment;
+    private Predicate<Class> skipFieldClassPredicate = DEFAULT_SKIP_FIELD_CLASS_PREDICATE;
+    private final Map<Class<?>, Boolean> skipFieldClassPredicateCache = Collections.synchronizedMap(new LinkedHashMap<Class<?>, Boolean>(201, 1F, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry eldest) {
+            return size() > 200;
+        }
+    });
     private long batchAggregationMilliseconds = 10;
     private boolean batchAggregation;
     private int batchAggregationMinConcurrentCount = 1;
 
-    public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JoinPoint, List<CField>>> map) {
-        this.biConsumerFunction = map::get;
+    public ReturnFieldDispatchAop() {
     }
 
-    public ReturnFieldDispatchAop(Function<String, BiConsumer<JoinPoint, List<CField>>> biConsumerFunction) {
-        this.biConsumerFunction = biConsumerFunction;
+    public static <JOIN_POINT> ReturnFieldDispatchAop<JOIN_POINT> newInstance(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
+        return new SimpleReturnFieldDispatchAop<>(consumerProvider);
+    }
+
+    public static <JOIN_POINT> ReturnFieldDispatchAop<JOIN_POINT> newInstance(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
+        return new SimpleReturnFieldDispatchAop<>(map);
+    }
+
+    public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
+        this.consumerProvider = map::get;
+    }
+
+    public ReturnFieldDispatchAop(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
+        this.consumerProvider = consumerProvider;
+    }
+
+    public void setConsumerProvider(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
+        this.consumerProvider = consumerProvider;
     }
 
     public String getMyAnnotationConsumerName(Class<? extends Annotation> myAnnotationClass) {
         return myAnnotationClass.getSimpleName();
     }
 
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
+    public void setConfigurableEnvironment(Object configurableEnvironment) {
         this.configurableEnvironment = configurableEnvironment;
+    }
+
+    public Object getConfigurableEnvironment() {
+        return configurableEnvironment;
     }
 
     public void setTaskExecutor(Function<Runnable, Future> taskExecutor) {
         this.taskExecutor = taskExecutor;
+    }
+
+    public Function<Runnable, Future> getTaskExecutor() {
+        return taskExecutor;
     }
 
     public void addBeanPackagePaths(String paths) {
@@ -154,14 +187,31 @@ public class ReturnFieldDispatchAop {
         return System.identityHashCode(object);
     }
 
-    @Before(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
+    //    @Before(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
+    protected abstract void aopBefore();
+//    {
+//        before();
+//    }
+
+    //    @After(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
+    protected abstract void aopAfter();
+//    {
+//        after();
+//    }
+
+    //    @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)",
+//            returning = "result")
+    protected abstract void aopReturningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException;
+//    {
+//        returningAfter(joinPoint, result);
+//    }
+
     protected void before() {
         if (concurrentThreadMap.computeIfAbsent(Thread.currentThread(), e -> new AtomicInteger()).getAndIncrement() == 0) {
             concurrentThreadCounter.increment();
         }
     }
 
-    @After(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)")
     protected void after() {
         Thread currentThread = Thread.currentThread();
         if (concurrentThreadMap.get(currentThread).decrementAndGet() == 0) {
@@ -170,12 +220,9 @@ public class ReturnFieldDispatchAop {
         }
     }
 
-    @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)",
-            returning = "result")
-    protected void returningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
-        if (log.isTraceEnabled()) {
-            log.trace("afterReturning into. joinPoint={}, result={}", joinPoint, result);
-        }
+    protected void returningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+        PlatformDependentUtil.logTrace(ReturnFieldDispatchAop.class, "afterReturning into. joinPoint={}, result={}", joinPoint, result);
+
         if (isNeedPending(joinPoint, result)) {
             addPendingList(result);
             if (!(result instanceof FieldCompletableFuture)) {
@@ -205,7 +252,7 @@ public class ReturnFieldDispatchAop {
         return pendingSignalThreadRef.get() == Thread.currentThread();
     }
 
-    protected void collectAndAutowired(JoinPoint joinPoint, Object result) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
+    protected void collectAndAutowired(JOIN_POINT joinPoint, Object result) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
         if (result == null) {
             return;
         }
@@ -213,7 +260,7 @@ public class ReturnFieldDispatchAop {
         List<FieldCompletableFuture<?>> completableFutureList = new LinkedList<>();
         Map<String, List<CField>> groupCollectMap = new LinkedHashMap<>();
 
-        Map<String, FieldIntercept> aopFieldInterceptMap = new LinkedHashMap<>();
+        Map<String, FieldIntercept<JOIN_POINT>> aopFieldInterceptMap = new LinkedHashMap<>();
         Set<Object> visitObjectIdSet = new HashSet<>();
         visitObjectIdSet.add(objectId(result));
 
@@ -248,7 +295,7 @@ public class ReturnFieldDispatchAop {
             for (FieldCompletableFuture<?> future : completableFutureList) {
                 future.complete();
             }
-            for (FieldIntercept intercept : aopFieldInterceptMap.values()) {
+            for (FieldIntercept<JOIN_POINT> intercept : aopFieldInterceptMap.values()) {
                 try {
                     intercept.end(joinPoint, allFieldList, result);
                 } catch (Exception e) {
@@ -258,7 +305,7 @@ public class ReturnFieldDispatchAop {
         }
     }
 
-    protected List<CField> autowired(JoinPoint joinPoint, Map<String, List<CField>> groupCollectMap, Map<String, FieldIntercept> aopFieldInterceptMap, int step, Object result) throws ExecutionException, InterruptedException {
+    protected List<CField> autowired(JOIN_POINT joinPoint, Map<String, List<CField>> groupCollectMap, Map<String, FieldIntercept<JOIN_POINT>> aopFieldInterceptMap, int step, Object result) throws ExecutionException, InterruptedException {
         //  通知实现
         List<Runnable> callableList = new LinkedList<>();
         List<CField> allFieldList = new ArrayList<>();
@@ -269,14 +316,14 @@ public class ReturnFieldDispatchAop {
                 continue;
             }
             allFieldList.addAll(fieldList);
-            FieldIntercept fieldIntercept = aopFieldInterceptMap.get(key);
-            BiConsumer<JoinPoint, List<CField>> consumer;
+            FieldIntercept<JOIN_POINT> fieldIntercept = aopFieldInterceptMap.get(key);
+            BiConsumer<JOIN_POINT, List<CField>> consumer;
             if (fieldIntercept != null) {
                 consumer = fieldIntercept;
             } else {
-                consumer = biConsumerFunction.apply(key);
+                consumer = consumerProvider.apply(key);
                 if (consumer instanceof FieldIntercept) {
-                    fieldIntercept = (FieldIntercept) consumer;
+                    fieldIntercept = (FieldIntercept<JOIN_POINT>) consumer;
                     aopFieldInterceptMap.put(key, fieldIntercept);
                     fieldIntercept.begin(joinPoint, fieldList, result);
                 }
@@ -284,7 +331,7 @@ public class ReturnFieldDispatchAop {
             if (consumer == null) {
                 throw new IllegalArgumentException("ReturnFieldDispatchAop autowired consumer '" + key + "' not found!");
             }
-            callableList.add(new AutowiredRunnable(this, joinPoint, result, step, fieldList, key, consumer));
+            callableList.add(new AutowiredRunnable<>(this, joinPoint, result, step, fieldList, key, consumer));
         }
 
         // 执行
@@ -337,19 +384,18 @@ public class ReturnFieldDispatchAop {
         return allFieldList;
     }
 
-    public static class AutowiredRunnable implements Runnable {
-        private final static Logger log = LoggerFactory.getLogger(AutowiredRunnable.class);
-        private final ReturnFieldDispatchAop aop;
-        private final JoinPoint joinPoint;
+    public static class AutowiredRunnable<JOIN_POINT> implements Runnable {
+        private final ReturnFieldDispatchAop<JOIN_POINT> aop;
+        private final JOIN_POINT joinPoint;
         private final Object result;
         private final int step;
         private final List<CField> fieldList;
         private final String consumerName;
-        private final BiConsumer<JoinPoint, List<CField>> consumer;
+        private final BiConsumer<JOIN_POINT, List<CField>> consumer;
 
-        public AutowiredRunnable(ReturnFieldDispatchAop aop, JoinPoint joinPoint, Object result,
+        public AutowiredRunnable(ReturnFieldDispatchAop<JOIN_POINT> aop, JOIN_POINT joinPoint, Object result,
                                  int step, List<CField> fieldList,
-                                 String consumerName, BiConsumer<JoinPoint, List<CField>> consumer) {
+                                 String consumerName, BiConsumer<JOIN_POINT, List<CField>> consumer) {
             this.aop = aop;
             this.joinPoint = joinPoint;
             this.result = result;
@@ -366,11 +412,11 @@ public class ReturnFieldDispatchAop {
                     '}';
         }
 
-        public ReturnFieldDispatchAop getAop() {
+        public ReturnFieldDispatchAop<JOIN_POINT> getAop() {
             return aop;
         }
 
-        public JoinPoint getJoinPoint() {
+        public Object getJoinPoint() {
             return joinPoint;
         }
 
@@ -390,29 +436,22 @@ public class ReturnFieldDispatchAop {
             return consumerName;
         }
 
-        public BiConsumer<JoinPoint, List<CField>> getConsumer() {
+        public BiConsumer<JOIN_POINT, List<CField>> getConsumer() {
             return consumer;
         }
 
         @Override
         public void run() {
-            FieldIntercept fieldIntercept = consumer instanceof FieldIntercept ? (FieldIntercept) consumer : null;
+            FieldIntercept<JOIN_POINT> fieldIntercept = consumer instanceof FieldIntercept ? (FieldIntercept<JOIN_POINT>) consumer : null;
             try {
                 if (fieldIntercept != null) {
                     fieldIntercept.stepBegin(step, joinPoint, fieldList, result);
                 }
-                boolean traceEnabled = log.isTraceEnabled();
-                if (traceEnabled) {
-                    log.trace("start Consumer ={}, value={}", consumer, fieldList);
-                }
+                PlatformDependentUtil.logTrace(AutowiredRunnable.class, "start Consumer ={}, value={}", consumer, fieldList);
                 consumer.accept(joinPoint, fieldList);
-                if (traceEnabled) {
-                    log.trace("end Consumer ={}", consumer);
-                }
+                PlatformDependentUtil.logTrace(AutowiredRunnable.class, "end Consumer ={}", consumer);
             } catch (Exception e) {
-                if (log.isErrorEnabled()) {
-                    log.error("error Consumer ={},message={}", consumer, e.getMessage(), e);
-                }
+                PlatformDependentUtil.logTrace(AutowiredRunnable.class, "error Consumer ={},message={}", consumer, e.getMessage(), e);
                 aop.sneakyThrows(e);
             } finally {
                 if (fieldIntercept != null) {
@@ -440,6 +479,7 @@ public class ReturnFieldDispatchAop {
                 || Type.class.isAssignableFrom(e)
                 || Number.class.isAssignableFrom(e)
                 || Date.class.isAssignableFrom(e)
+                || Boolean.class == e
                 || TemporalAccessor.class.isAssignableFrom(e)
                 || e.isEnum());
     }
@@ -522,7 +562,7 @@ public class ReturnFieldDispatchAop {
             // 支持getter方法明确表示get返回的结果需要注入
             Method readMethod = descriptor.getReadMethod();
             if (isRootEntity && readMethod != null && readMethod.getDeclaredAnnotations().length > 0
-                    && AnnotationUtils.findAnnotation(readMethod, ReturnFieldAop.class) != null) {
+                    && findDeclaredAnnotation(readMethod, returnFieldAopCache) != null) {
                 Object fieldData = readMethod.invoke(bean);
                 collectBean(fieldData, groupCollectMap, completableFutureList);
                 continue;
@@ -543,17 +583,16 @@ public class ReturnFieldDispatchAop {
             }
 
             //路由消费字段
-            RouterFieldConsumer routerFieldConsumer = field.getDeclaredAnnotation(RouterFieldConsumer.class);
-            if (routerFieldConsumer != null && routerFieldConsumer.routerField().length() > 0) {
+            RouterFieldConsumer routerFieldConsumer = findDeclaredAnnotation(field, routerFieldConsumerCache);
+            String routerField;
+            if (routerFieldConsumer != null && (routerField = routerFieldConsumer.routerField()).length() > 0) {
                 if (beanHandler == null) {
                     beanHandler = new BeanMap(bean);
                 }
-                if (!beanHandler.containsKey(routerFieldConsumer.routerField())) {
-                    if (log.isWarnEnabled()) {
-                        log.warn("RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerFieldConsumer.routerField(), bean);
-                    }
+                if (!beanHandler.containsKey(routerField)) {
+                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerField, bean);
                 }
-                Object routerFieldData = beanHandler.get(routerFieldConsumer.routerField());
+                Object routerFieldData = beanHandler.get(routerField);
                 String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
                 if (Objects.equals(routerFieldDataStr, "null")) {
                     routerFieldDataStr = null;
@@ -571,36 +610,32 @@ public class ReturnFieldDispatchAop {
                 }
                 if (choseFieldConsumer.value().length() > 0) {
                     groupCollectMap.computeIfAbsent(choseFieldConsumer.value(), e -> new ArrayList<>())
-                            .add(new CField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer));
+                            .add(new CField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer, configurableEnvironment));
                 }
             }
 
             //普通消费字段
-            FieldConsumer fieldConsumer = field.getDeclaredAnnotation(FieldConsumer.class);
+            FieldConsumer fieldConsumer = findDeclaredAnnotation(field, fieldConsumerCache);
             if (fieldConsumer != null) {
                 if (beanHandler == null) {
                     beanHandler = new BeanMap(bean);
                 }
-                CField cField = new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer);
-//                    if(!cField.existValue()){
+                CField cField = new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer, configurableEnvironment);
                 groupCollectMap.computeIfAbsent(fieldConsumer.value(), e -> new ArrayList<>())
                         .add(cField);
                 continue;
-//                    }
             }
 
             //枚举消费字段
-            EnumFieldConsumer enumFieldConsumer = field.getDeclaredAnnotation(EnumFieldConsumer.class);
+            EnumFieldConsumer enumFieldConsumer = findDeclaredAnnotation(field, enumFieldConsumerCache);
             if (enumFieldConsumer != null) {
                 if (beanHandler == null) {
                     beanHandler = new BeanMap(bean);
                 }
-                CField cField = new CField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer);
-//                    if(!cField.existValue()) {
+                CField cField = new CField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer, configurableEnvironment);
                 groupCollectMap.computeIfAbsent(EnumFieldConsumer.NAME, e -> new ArrayList<>())
                         .add(cField);
                 continue;
-//                    }
             }
 
             //自定义消费字段
@@ -611,14 +646,15 @@ public class ReturnFieldDispatchAop {
                         beanHandler = new BeanMap(bean);
                     }
                     String name = getMyAnnotationConsumerName(myAnnotationClass);
-                    CField cField = new CField(name, beanHandler, field, myAnnotation);
+                    CField cField = new CField(name, beanHandler, field, myAnnotation, configurableEnvironment);
                     groupCollectMap.computeIfAbsent(name, e -> new ArrayList<>())
                             .add(cField);
                 }
             }
 
 
-            boolean isMultiple = isMultiple(field.getType());
+            Class<?> fieldType = field.getType();
+            boolean isMultiple = isMultiple(fieldType);
             if (isMultiple) {
                 try {
                     // 防止触发 getter方法, 忽略private, 强行取字段值
@@ -630,7 +666,7 @@ public class ReturnFieldDispatchAop {
                 }
             }
 
-            boolean isEntity = !isBasicType(field.getType()) && isEntity(field.getType());
+            boolean isEntity = !isBasicType(fieldType) && isEntity(fieldType);
             if (isEntity) {
                 try {
                     // 防止触发 getter方法, 忽略private, 强行取字段值
@@ -639,7 +675,7 @@ public class ReturnFieldDispatchAop {
                         continue;
                     }
                     Class<?> fieldDataClass = fieldData.getClass();
-                    if (skipFieldClassPredicate.test(fieldDataClass)) {
+                    if (skipFieldClassPredicateCache.computeIfAbsent(fieldDataClass, type -> skipFieldClassPredicate.test(fieldDataClass))) {
                         continue;
                     }
                     collectBean(fieldData, groupCollectMap, completableFutureList);
@@ -657,6 +693,10 @@ public class ReturnFieldDispatchAop {
      */
     public void setSkipFieldClassPredicate(Predicate<Class> skipFieldClassPredicate) {
         this.skipFieldClassPredicate = skipFieldClassPredicate;
+    }
+
+    public Predicate<Class> getSkipFieldClassPredicate() {
+        return skipFieldClassPredicate;
     }
 
     /**
@@ -680,7 +720,7 @@ public class ReturnFieldDispatchAop {
         return batchAggregation;
     }
 
-    protected boolean isNeedPending(JoinPoint joinPoint, Object returnResult) {
+    protected boolean isNeedPending(JOIN_POINT joinPoint, Object returnResult) {
         if (!batchAggregation) {
             return false;
         }
@@ -688,11 +728,7 @@ public class ReturnFieldDispatchAop {
         if (concurrentThreadCount <= batchAggregationMinConcurrentCount) {
             return false;
         }
-        if (joinPoint == null) {
-            return true;
-        }
-        ReturnFieldAop returnFieldAop = ((MethodSignature) joinPoint.getSignature()).getMethod().getAnnotation(ReturnFieldAop.class);
-        return returnFieldAop.batchAggregation();
+        return joinPoint == null;
     }
 
     public void startPendingSignalThreadIfNeed() {
@@ -771,6 +807,10 @@ public class ReturnFieldDispatchAop {
         }
     }
 
+    public static <T extends Annotation> T findDeclaredAnnotation(AnnotatedElement element, AnnotationCache<T> cache) {
+        return cache.instanceCache.computeIfAbsent(element, e -> AnnotationUtil.findExtendsAnnotation(element, cache.alias, cache.type, cache.findCache));
+    }
+
     protected List<Object> pollPending() {
         synchronized (pendingList) {
             if (pendingList.isEmpty()) {
@@ -780,6 +820,27 @@ public class ReturnFieldDispatchAop {
             pendingList.clear();
             return objects;
         }
+    }
+
+    private static class AnnotationCache<ANNOTATION extends Annotation> {
+        private final Class<ANNOTATION> type;
+        private final Collection<Class<? extends Annotation>> alias;
+        private final int cacheSize;
+        private final Map<Class<?>, Boolean> findCache = new ConcurrentHashMap<>(64);
+        private final Map<AnnotatedElement, ANNOTATION> instanceCache;
+
+        private AnnotationCache(Class<ANNOTATION> type, Collection<Class<? extends Annotation>> alias, int cacheSize) {
+            this.type = type;
+            this.alias = alias;
+            this.cacheSize = cacheSize;
+            this.instanceCache = Collections.synchronizedMap(new LinkedHashMap<AnnotatedElement, ANNOTATION>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<AnnotatedElement, ANNOTATION> eldest) {
+                    return size() > AnnotationCache.this.cacheSize;
+                }
+            });
+        }
+
     }
 
     public static class PendingSignalThread extends Thread {
@@ -811,13 +872,9 @@ public class ReturnFieldDispatchAop {
                 } catch (InterruptedException e) {
                     return;
                 } catch (ExecutionException | InvocationTargetException | IllegalAccessException e) {
-                    if (log.isWarnEnabled()) {
-                        log.warn("collectAndAutowired Execution error = {}", e, e);
-                    }
+                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "collectAndAutowired Execution error = {}", e, e);
                 } catch (Throwable e) {
-                    if (log.isWarnEnabled()) {
-                        log.warn("collectAndAutowired Throwable error = {}", e, e);
-                    }
+                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "collectAndAutowired Throwable error = {}", e, e);
                 }
             }
         }
@@ -828,24 +885,53 @@ public class ReturnFieldDispatchAop {
      *
      * @author hao
      */
-    public interface FieldIntercept extends BiConsumer<JoinPoint, List<CField>> {
+    public interface FieldIntercept<JOIN_POINT> extends BiConsumer<JOIN_POINT, List<CField>> {
         @Override
-        void accept(JoinPoint joinPoint, List<CField> fieldList);
+        void accept(JOIN_POINT joinPoint, List<CField> fieldList);
 
-        default void begin(JoinPoint joinPoint, List<CField> fieldList, Object result) {
-
-        }
-
-        default void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+        default void begin(JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
 
         }
 
-        default void stepEnd(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+        default void stepBegin(int step, JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
 
         }
 
-        default void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
+        default void stepEnd(int step, JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
 
+        }
+
+        default void end(JOIN_POINT joinPoint, List<CField> allFieldList, Object result) {
+
+        }
+    }
+
+    private static class SimpleReturnFieldDispatchAop<JOIN_POINT> extends ReturnFieldDispatchAop<JOIN_POINT> {
+        private SimpleReturnFieldDispatchAop() {
+            super();
+        }
+
+        private SimpleReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
+            super(map);
+        }
+
+        private SimpleReturnFieldDispatchAop(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
+            super(consumerProvider);
+        }
+
+        @Override
+        protected void aopBefore() {
+            throw new IllegalStateException("not support aop");
+        }
+
+        @Override
+        protected void aopAfter() {
+            throw new IllegalStateException("not support aop");
+        }
+
+        @Override
+        protected void aopReturningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+            throw new IllegalStateException("not support aop");
         }
     }
 

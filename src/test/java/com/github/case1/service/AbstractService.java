@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 
 public abstract class AbstractService<REPOSITORY extends AbstractMapper<PO, ID>,
         PO extends AbstractPO<ID>,
-        ID extends Number> extends CompositeFieldIntercept<ID, PO> {
+        ID extends Number> extends CompositeFieldIntercept<ID, PO, Object> {
     @Autowired
     protected REPOSITORY repository;
     private final Class<?> beanType = TypeUtil.findGenericType(this, AbstractService.class, "PO");
@@ -36,12 +36,6 @@ public abstract class AbstractService<REPOSITORY extends AbstractMapper<PO, ID>,
     public Map<ID, PO> selectValueMapByKeys(Collection<ID> ids) {
         return repository.findByIds(ids).stream()
                 .collect(Collectors.toMap(AbstractPO::getId, e -> e));
-    }
-
-    @Autowired
-    @Override
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
-        super.setConfigurableEnvironment(configurableEnvironment);
     }
 
     protected Map<ID, String> convertNames(List<PO> pos) {

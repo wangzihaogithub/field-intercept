@@ -61,6 +61,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     }
 
     public BeanMap() {
+        super();
         this.bean = this;
         this.fieldDescriptorMap = findPropertyFieldDescriptor(bean.getClass());
         this.descriptorMap = findPropertyDescriptor(bean.getClass());

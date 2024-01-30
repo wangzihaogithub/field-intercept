@@ -1,8 +1,6 @@
 package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.TypeUtil;
-import org.aspectj.lang.JoinPoint;
-import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -16,9 +14,9 @@ import java.util.stream.Collectors;
  *
  * @author acer01
  */
-public class CompositeFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
-    protected final KeyNameFieldIntercept<KEY> keyNameFieldIntercept;
-    protected final KeyValueFieldIntercept<KEY, VALUE> keyValueFieldIntercept;
+public class CompositeFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint> {
+    protected final KeyNameFieldIntercept<KEY, JoinPoint> keyNameFieldIntercept;
+    protected final KeyValueFieldIntercept<KEY, VALUE, JoinPoint> keyValueFieldIntercept;
 
     public CompositeFieldIntercept() {
         this(null, 0);
@@ -72,6 +70,12 @@ public class CompositeFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchA
 
     @Override
     public void accept(JoinPoint joinPoint, List<CField> cFields) {
+        accept(joinPoint, cFields, keyNameFieldIntercept, keyValueFieldIntercept);
+    }
+
+    public static <KEY, VALUE, JoinPoint> void accept(JoinPoint joinPoint, List<CField> cFields,
+                                                      KeyNameFieldIntercept<KEY, JoinPoint> keyNameFieldIntercept,
+                                                      KeyValueFieldIntercept<KEY, VALUE, JoinPoint> keyValueFieldIntercept) {
         List<CField> nameFields = cFields.stream().filter(e -> !e.existPlaceholder() && isString(e))
                 .collect(Collectors.toList());
         List<CField> beanFields;
@@ -112,11 +116,11 @@ public class CompositeFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchA
         keyValueFieldIntercept.end(joinPoint, allFieldList, result);
     }
 
-    public boolean isString(CField field) {
+    public static boolean isString(CField field) {
         return field.getType() == String.class || field.getGenericType() == String.class;
     }
 
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
+    public void setConfigurableEnvironment(Object configurableEnvironment) {
         keyValueFieldIntercept.setConfigurableEnvironment(configurableEnvironment);
     }
 

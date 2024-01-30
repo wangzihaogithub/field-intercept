@@ -1,12 +1,9 @@
 package com.github.fieldintercept;
 
+import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
 import com.github.fieldintercept.util.ShareThreadMap;
 import com.github.fieldintercept.util.TypeUtil;
-import org.aspectj.lang.JoinPoint;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
@@ -20,13 +17,13 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
+public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint> {
     protected final Class<KEY> keyClass;
     protected final Class<KEY> valueClass;
     protected final ShareThreadMap<KEY, VALUE> shareThreadMap;
     protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
     protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
-    protected ConfigurableEnvironment configurableEnvironment;
+    protected Object configurableEnvironment;
 
     public KeyValueFieldIntercept() {
         this(null, null, 0);
@@ -175,9 +172,11 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected String[] getKeyFieldName(Annotation annotation) {
-        Object keyField = AnnotationUtils.getValue(annotation, "keyField");
+        Object keyField = AnnotationUtil.getValue(annotation, "keyField");
         if (keyField instanceof String[]) {
             return (String[]) keyField;
+        } else if (keyField instanceof String) {
+            return new String[]{(String) keyField};
         } else {
             return null;
         }
@@ -444,7 +443,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected String getAnnotationJoinDelimiter(Annotation annotation) {
-        Object joinDelimiter = AnnotationUtils.getValue(annotation, "joinDelimiter");
+        Object joinDelimiter = AnnotationUtil.getValue(annotation, "joinDelimiter");
         if (joinDelimiter == null) {
             return ",";
         } else {
@@ -452,10 +451,8 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         }
     }
 
-    @Autowired
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
+    public void setConfigurableEnvironment(Object configurableEnvironment) {
         this.configurableEnvironment = configurableEnvironment;
     }
-
 
 }
