@@ -8,7 +8,6 @@ import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
 import com.github.fieldintercept.util.FieldCompletableFuture;
 import com.github.fieldintercept.util.PlatformDependentUtil;
-import org.aspectj.lang.JoinPoint;
 
 import java.beans.PropertyDescriptor;
 import java.lang.annotation.Annotation;
@@ -205,7 +204,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     //    @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)",
 //            returning = "result")
-    protected abstract void aopReturningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException;
+    protected abstract void aopReturningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException;
 //    {
 //        returningAfter(joinPoint, result);
 //    }
@@ -892,7 +891,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public interface SelectMethodHolder{
+    public interface SelectMethodHolder {
 
     }
 
@@ -946,7 +945,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         @Override
-        protected void aopReturningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+        protected void aopReturningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
             throw new IllegalStateException("not support aop");
         }
     }
