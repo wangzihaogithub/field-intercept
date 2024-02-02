@@ -1,0 +1,3 @@
+spring:
+  fieldintercept:
+    beanBasePackages: 'com.ig'

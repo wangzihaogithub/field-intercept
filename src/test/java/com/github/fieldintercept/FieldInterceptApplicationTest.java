@@ -1,6 +1,6 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.annotation.EnableFieldIntercept;
+// import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.entity.ApplyOrder;
 import com.github.fieldintercept.entity.BaseEnumGroupEnum;
@@ -24,10 +24,10 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 //@EnableFieldIntercept(beanBasePackages = {"com.ig"})
-@EnableFieldIntercept(beanBasePackages = {"com.ig"},
-        myAnnotations = {EnumDBFieldConsumer.class},
-        batchAggregation = true
-)
+//@EnableFieldIntercept(beanBasePackages = {"com.ig"},
+//        myAnnotations = {EnumDBFieldConsumer.class},
+//        batchAggregation = true
+//)
 @SpringBootApplication
 public class FieldInterceptApplicationTest {
 

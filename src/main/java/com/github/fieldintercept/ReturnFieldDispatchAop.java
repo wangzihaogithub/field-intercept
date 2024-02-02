@@ -91,7 +91,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     protected final AnnotationCache<FieldConsumer> fieldConsumerCache = new AnnotationCache<>(FieldConsumer.class, Arrays.asList(FieldConsumer.class, FieldConsumer.Extends.class), 100);
     protected final AnnotationCache<EnumFieldConsumer> enumFieldConsumerCache = new AnnotationCache<>(EnumFieldConsumer.class, Arrays.asList(EnumFieldConsumer.class, EnumFieldConsumer.Extends.class), 100);
 
-    private Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider;
+    private Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory;
     private Function<Runnable, Future> taskExecutor;
     private Object configurableEnvironment;
     private Predicate<Class> skipFieldClassPredicate = DEFAULT_SKIP_FIELD_CLASS_PREDICATE;
@@ -117,15 +117,19 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
-        this.consumerProvider = map::get;
+        this.consumerFactory = map::get;
     }
 
     public ReturnFieldDispatchAop(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
-        this.consumerProvider = consumerProvider;
+        this.consumerFactory = consumerProvider;
     }
 
-    public void setConsumerProvider(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
-        this.consumerProvider = consumerProvider;
+    public void setConsumerFactory(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory) {
+        this.consumerFactory = consumerFactory;
+    }
+
+    public Function<String, BiConsumer<JOIN_POINT, List<CField>>> getConsumerFactory() {
+        return consumerFactory;
     }
 
     public String getMyAnnotationConsumerName(Class<? extends Annotation> myAnnotationClass) {
@@ -321,7 +325,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             if (fieldIntercept != null) {
                 consumer = fieldIntercept;
             } else {
-                consumer = consumerProvider.apply(key);
+                consumer = consumerFactory.apply(key);
                 if (consumer instanceof FieldIntercept) {
                     fieldIntercept = (FieldIntercept<JOIN_POINT>) consumer;
                     aopFieldInterceptMap.put(key, fieldIntercept);
@@ -485,6 +489,9 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected boolean isEntity(Class type) {
+        if (type.isInterface()) {
+            return false;
+        }
         return typeEntryCacheMap.computeIfAbsent(type, e -> {
             Package typePackage = e.getPackage();
             if (typePackage == null) {
@@ -548,14 +555,15 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return;
         }
 
-        if (bean instanceof Map) {
+        boolean isRootEntity = isEntity(rootClass);
+
+        if (!isRootEntity && bean instanceof Map) {
             for (Object each : ((Map) bean).values()) {
                 collectBean(each, groupCollectMap, completableFutureList);
             }
             return;
         }
 
-        boolean isRootEntity = isEntity(rootClass);
         BeanMap beanHandler = null;
         Map<String, PropertyDescriptor> propertyDescriptor = BeanMap.findPropertyDescriptor(rootClass);
         for (PropertyDescriptor descriptor : propertyDescriptor.values()) {
@@ -572,13 +580,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             if (field == null) {
                 continue;
             }
-
-            int modifiers = field.getModifiers();
-            if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers)) {
+            Class<?> declaringClass = field.getDeclaringClass();
+            if (declaringClass == Object.class) {
                 continue;
             }
 
-            if (field.getDeclaringClass() == Object.class) {
+            if (declaringClass != rootClass && !isEntity(declaringClass)) {
+                continue;
+            }
+
+            int modifiers = field.getModifiers();
+            if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers)) {
                 continue;
             }
 
@@ -880,6 +892,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
+    public interface SelectMethodHolder{
+
+    }
+
     /**
      * 字段拦截器 (可以处理字段注入, 加缓存等)
      *
@@ -936,6 +952,13 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected <E extends Throwable> void sneakyThrows(Throwable t) throws E {
-        throw (E) t;
+        E cause = (E) t;
+        if (t instanceof ExecutionException || t instanceof UndeclaredThrowableException || t instanceof InvocationTargetException) {
+            Throwable c = t.getCause();
+            if (c != null) {
+                cause = (E) c;
+            }
+        }
+        throw cause;
     }
 }

@@ -16,7 +16,7 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint> {
+public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<T> keyClass;
     protected final ShareThreadMap<T, Object> shareThreadMap;
     protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
@@ -58,6 +58,10 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
 
     public void setSelectNameMapByKeys(Function<Collection<T>, Map<T, ?>> selectNameMapByKeys) {
         this.selectNameMapByKeys = selectNameMapByKeys;
+    }
+
+    public Function<Collection<T>, Map<T, ?>> getSelectNameMapByKeys() {
+        return selectNameMapByKeys;
     }
 
     @Override

@@ -1,7 +1,6 @@
 package com.github.fieldintercept.springboot;
 
 import com.github.fieldintercept.*;
-import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.annotation.EnumDBFieldConsumer;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
 import com.github.fieldintercept.annotation.FieldConsumer;
@@ -15,7 +14,6 @@ import org.springframework.beans.factory.support.BeanDefinitionBuilder;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
-import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.task.TaskDecorator;
@@ -24,10 +22,12 @@ import org.springframework.core.type.AnnotationMetadata;
 import java.lang.annotation.Annotation;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefinitionRegistrar, BeanFactoryAware, EnvironmentAware {
@@ -49,15 +49,16 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected ListableBeanFactory beanFactory;
     protected Environment environment;
     protected BeanDefinitionRegistry definitionRegistry;
+    private final AtomicBoolean initPropertiesFlag = new AtomicBoolean();
+    private Supplier<FieldinterceptProperties> propertiesSupplier;
 
     @Override
-    public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry definitionRegistry) {
+    public void registerBeanDefinitions(AnnotationMetadata metadata, BeanDefinitionRegistry definitionRegistry) {
         if (beanFactory == null && definitionRegistry instanceof ListableBeanFactory) {
             beanFactory = (ListableBeanFactory) definitionRegistry;
         }
         this.definitionRegistry = definitionRegistry;
         Objects.requireNonNull(beanFactory);
-        setImportMetadata(importingClassMetadata);
 
         // 1.EnumFieldIntercept.class (if not exist)
         if (!beanFactory.containsBeanDefinition(BEAN_NAME_ENUM_FIELD_INTERCEPT)) {
@@ -77,8 +78,23 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
+    public FieldinterceptProperties getProperties() {
+        if (propertiesSupplier == null) {
+            return null;
+        }
+        initProperties();
+        return propertiesSupplier.get();
+    }
+
+    private void initProperties() {
+        if (initPropertiesFlag.compareAndSet(false, true)) {
+            setMetadata(propertiesSupplier.get());
+        }
+    }
+
     protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
-        aop.setConsumerProvider(new SpringConsumerProvider<>(beanFactory));
+        initProperties();
+        aop.setConsumerFactory(consumerFactory());
         aop.setBatchAggregation(batchAggregation);
         aop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
         aop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
@@ -103,6 +119,10 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         if (aop.getTaskExecutor() == null) {
             aop.setTaskExecutor(taskExecutorFunction());
         }
+    }
+
+    protected <JOIN_POINT> Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory() {
+        return new SpringConsumerFactory<>(beanFactory);
     }
 
     protected ConfigurableEnvironment configurableEnvironment() {
@@ -142,8 +162,13 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     public void registerBeanDefinitionsReturnFieldDispatchAop() {
+        Class aopClass = environment.getProperty(FieldinterceptProperties.PREFIX + ".aopClass", Class.class, AspectjReturnFieldDispatchAop.class);
+
         BeanDefinitionBuilder builder = BeanDefinitionBuilder
-                .genericBeanDefinition((Class) aopClass, () -> BeanUtils.instantiateClass(aopClass));
+                .genericBeanDefinition(aopClass, () -> {
+                    this.initProperties();
+                    return BeanUtils.instantiateClass(this.aopClass);
+                });
         definitionRegistry.registerBeanDefinition(BEAN_NAME_RETURN_FIELD_DISPATCH_AOP, builder.getBeanDefinition());
     }
 
@@ -210,21 +235,21 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    public void setImportMetadata(AnnotationMetadata metadata) {
-        AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(EnableFieldIntercept.class.getName()));
-        this.beanBasePackages = attributes.getStringArray("beanBasePackages");
-        this.parallelQuery = attributes.getBoolean("parallelQuery");
-        this.parallelQueryMaxThreads = attributes.getNumber("parallelQueryMaxThreads").intValue();
-        this.myAnnotations = (Class<? extends Annotation>[]) attributes.getClassArray("myAnnotations");
-        this.batchAggregationMilliseconds = attributes.getNumber("batchAggregationMilliseconds").longValue();
-        this.batchAggregationMinConcurrentCount = attributes.getNumber("batchAggregationMinConcurrentCount").intValue();
-        this.batchAggregation = attributes.getBoolean("batchAggregation");
-        this.aopClass = attributes.getClass("aopClass");
+    public void setMetadata(FieldinterceptProperties properties) {
+        this.beanBasePackages = properties.getBeanBasePackages();
+        this.parallelQuery = properties.isParallelQuery();
+        this.parallelQueryMaxThreads = properties.getParallelQueryMaxThreads();
+        this.myAnnotations = properties.getMyAnnotations();
+        this.batchAggregationMilliseconds = properties.getBatchAggregationMilliseconds();
+        this.batchAggregationMinConcurrentCount = properties.getBatchAggregationMinConcurrentCount();
+        this.batchAggregation = properties.isBatchAggregation();
+        this.aopClass = properties.getAopClass();
     }
 
     @Override
     public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
         this.beanFactory = beanFactory instanceof ListableBeanFactory ? (ListableBeanFactory) beanFactory : null;
+        this.propertiesSupplier = () -> beanFactory.getBean(FieldinterceptProperties.class);
     }
 
     @Override
@@ -243,10 +268,10 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    private static class SpringConsumerProvider<JOIN_POINT> implements Function<String, BiConsumer<JOIN_POINT, List<CField>>> {
+    private static class SpringConsumerFactory<JOIN_POINT> implements Function<String, BiConsumer<JOIN_POINT, List<CField>>> {
         private final BeanFactory beanFactory;
 
-        private SpringConsumerProvider(BeanFactory beanFactory) {
+        private SpringConsumerFactory(BeanFactory beanFactory) {
             this.beanFactory = beanFactory;
         }
 

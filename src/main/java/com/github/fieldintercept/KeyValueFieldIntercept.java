@@ -17,9 +17,9 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint> {
+public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<KEY> keyClass;
-    protected final Class<KEY> valueClass;
+    protected final Class<VALUE> valueClass;
     protected final ShareThreadMap<KEY, VALUE> shareThreadMap;
     protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
     protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
@@ -38,6 +38,10 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
     }
 
     public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
+        this(keyClass, null, selectValueMapByKeys, shareTimeout);
+    }
+
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
         if (keyClass == null) {
             if (getClass() != KeyValueFieldIntercept.class) {
                 try {
@@ -50,11 +54,12 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                 keyClass = (Class<KEY>) Integer.class;
             }
         }
-        Class valueClass;
-        try {
-            valueClass = TypeUtil.findGenericType(this, KeyValueFieldIntercept.class, "VALUE");
-        } catch (Exception e) {
-            valueClass = Object.class;
+        if (valueClass == null) {
+            try {
+                valueClass = (Class<VALUE>) TypeUtil.findGenericType(this, KeyValueFieldIntercept.class, "VALUE");
+            } catch (Exception e) {
+                valueClass = (Class<VALUE>) Object.class;
+            }
         }
         this.keyClass = keyClass;
         this.valueClass = valueClass;
@@ -62,12 +67,16 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
         this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
-    public Class<KEY> getValueClass() {
+    public Class<VALUE> getValueClass() {
         return valueClass;
     }
 
     public Class<KEY> getKeyClass() {
         return keyClass;
+    }
+
+    public Function<Collection<KEY>, Map<KEY, VALUE>> getSelectValueMapByKeys() {
+        return selectValueMapByKeys;
     }
 
     @Override
