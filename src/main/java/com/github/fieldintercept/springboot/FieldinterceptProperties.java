@@ -12,9 +12,12 @@ public class FieldinterceptProperties {
     public static final String PREFIX = "spring.fieldintercept";
     private static final long serialVersionUID = 1L;
 
+    /**
+     * 是否开启字段拦截
+     */
     private boolean enabled = true;
     /**
-     * 集群
+     * 集群配置
      */
     @NestedConfigurationProperty
     private final Cluster cluster = new Cluster();
@@ -169,16 +172,24 @@ public class FieldinterceptProperties {
     }
 
     public static class Cluster {
+        /**
+         * 是否开启集群模式
+         */
         private boolean enabled = false;
         /**
-         * dubbo=使用dubbo远程注册与调用,
-         * disabled=关闭远程
+         * dubbo=使用dubbo远程注册与调用
          */
         private ClusterRpcEnum rpc = ClusterRpcEnum.dubbo;
+        /**
+         * 服务角色
+         * provider=服务端（配置后不会调用远程接口，会提供远程接口）
+         * consumer=客户端（配置后不会提供远程服务，会调用远程接口）
+         * all=服务端加客户端（会提供远程接口 + 会调用远程接口）
+         */
         private ClusterRoleEnum role = ClusterRoleEnum.all;
 
         /**
-         * Dubbo
+         * Dubbo配置
          */
         @NestedConfigurationProperty
         private final Dubbo dubbo = new Dubbo();
