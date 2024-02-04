@@ -392,13 +392,15 @@ public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatc
         if (rewriteKeyDataList == null) {
             return;
         }
+        Object keyData;
         if (rewriteKeyDataList.length == 1) {
-            cField.setKeyData(rewriteKeyDataList[0]);
+            keyData = rewriteKeyDataList[0];
         } else if (rewriteKeyDataList.length == 0) {
-            cField.setKeyData(null);
+            keyData = null;
         } else {
-            cField.setKeyData(new ArrayList<>(Arrays.asList(rewriteKeyDataList)));
+            keyData = new ArrayList<>(Arrays.asList(rewriteKeyDataList));
         }
+        cField.setKeyData(keyData);
     }
 
     protected <TYPE> TYPE cast(Object object, Class<TYPE> type) {

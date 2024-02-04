@@ -374,7 +374,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
 
                 @Override
                 public String toString() {
-                    return "DubboProviderGenericService{" +
+                    return "DubboService{" +
                             beanName +
                             '}';
                 }

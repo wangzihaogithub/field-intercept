@@ -426,9 +426,16 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         @Override
         public String toString() {
-            return "AutowiredRunnable{" +
-                    consumerName +
-                    '}';
+            StringBuilder builder = new StringBuilder("AutowiredRunnable{");
+            builder.append(consumerName).append('}');
+            if (result != null) {
+                builder.append(", result=");
+                builder.append(result.getClass());
+            }
+            if (joinPoint != null) {
+                builder.append(", ").append(joinPoint);
+            }
+            return builder.toString();
         }
 
         public ReturnFieldDispatchAop<JOIN_POINT> getAop() {
