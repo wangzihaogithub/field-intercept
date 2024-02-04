@@ -16,11 +16,11 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
-    protected final Class<T> keyClass;
-    protected final ShareThreadMap<T, Object> shareThreadMap;
+public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
+    protected final Class<KEY> keyClass;
+    protected final ShareThreadMap<KEY, Object> shareThreadMap;
     protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
-    protected Function<Collection<T>, Map<T, ?>> selectNameMapByKeys;
+    protected Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys;
 
     public KeyNameFieldIntercept() {
         this(null, null, 0);
@@ -30,21 +30,21 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         this(null, null, shareTimeout);
     }
 
-    public KeyNameFieldIntercept(Class<T> keyClass, int shareTimeout) {
+    public KeyNameFieldIntercept(Class<KEY> keyClass, int shareTimeout) {
         this(keyClass, null, shareTimeout);
     }
 
-    public KeyNameFieldIntercept(Class<T> keyClass, Function<Collection<T>, Map<T, ?>> selectNameMapByKeys, int shareTimeout) {
+    public KeyNameFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys, int shareTimeout) {
         if (keyClass == null) {
             if (getClass() != KeyNameFieldIntercept.class) {
                 try {
-                    Class<?> key = TypeUtil.findGenericType(this, KeyNameFieldIntercept.class, "T");
-                    keyClass = (Class<T>) key;
+                    Class<?> key = TypeUtil.findGenericType(this, KeyNameFieldIntercept.class, "KEY");
+                    keyClass = (Class<KEY>) key;
                 } catch (IllegalStateException ignored) {
                 }
             }
             if (keyClass == null) {
-                keyClass = (Class<T>) Integer.class;
+                keyClass = (Class<KEY>) Integer.class;
             }
         }
         this.keyClass = keyClass;
@@ -52,26 +52,26 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
-    public Class<T> getKeyClass() {
+    public Class<KEY> getKeyClass() {
         return keyClass;
     }
 
-    public void setSelectNameMapByKeys(Function<Collection<T>, Map<T, ?>> selectNameMapByKeys) {
+    public void setSelectNameMapByKeys(Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys) {
         this.selectNameMapByKeys = selectNameMapByKeys;
     }
 
-    public Function<Collection<T>, Map<T, ?>> getSelectNameMapByKeys() {
+    public Function<Collection<KEY>, Map<KEY, ?>> getSelectNameMapByKeys() {
         return selectNameMapByKeys;
     }
 
     @Override
     public final void accept(JoinPoint joinPoint, List<CField> cFields) {
-        Set<T> keyDataList = getKeyDataByFields(cFields);
+        Set<KEY> keyDataList = getKeyDataByFields(cFields);
         if (keyDataList == null || keyDataList.isEmpty()) {
             return;
         }
 
-        Map<T, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
+        Map<KEY, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
         if (nameMap == null || nameMap.isEmpty()) {
             return;
         }
@@ -100,9 +100,9 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         return System.identityHashCode(result);
     }
 
-    public Map<T, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<T> keys) {
-        Map<T, Object> valueMap = new LinkedHashMap<>();
-        for (T key : keys) {
+    public Map<KEY, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<KEY> keys) {
+        Map<KEY, Object> valueMap = new LinkedHashMap<>();
+        for (KEY key : keys) {
             Object value = shareThreadMap.get(key);
             if (value != null) {
                 valueMap.put(key, value);
@@ -114,15 +114,15 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         }
 
         // 未命中的查库
-        Set<T> remainingCacheMissKeys = new LinkedHashSet<>(keys);
+        Set<KEY> remainingCacheMissKeys = new LinkedHashSet<>(keys);
         remainingCacheMissKeys.removeAll(valueMap.keySet());
 
         // 查库与缓存数据合并
-        Map<T, ?> loadValueMap = selectObjectMapByKeys(cFields, remainingCacheMissKeys);
+        Map<KEY, ?> loadValueMap = selectObjectMapByKeys(cFields, remainingCacheMissKeys);
         valueMap.putAll(loadValueMap);
 
         // 放入缓存
-        shareThreadMap.putAll((Map<T, Object>) loadValueMap);
+        shareThreadMap.putAll((Map<KEY, Object>) loadValueMap);
         return valueMap;
     }
 
@@ -132,17 +132,17 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
      * @param keys 多个key
      * @return key 与名称的映射
      */
-    public Map<T, String> selectNameMapByKeys(Collection<T> keys) {
+    public Map<KEY, String> selectNameMapByKeys(Collection<KEY> keys) {
         return null;
     }
 
-    public Map<T, String> selectNameMapByKeys(List<CField> cFields, Collection<T> keys) {
-        Map<T, String> nameMap = selectNameMapByKeys(keys);
+    public Map<KEY, String> selectNameMapByKeys(List<CField> cFields, Collection<KEY> keys) {
+        Map<KEY, String> nameMap = selectNameMapByKeys(keys);
         return nameMap;
     }
 
-    public Map<T, ?> selectObjectMapByKeys(List<CField> cFields, Collection<T> keys) {
-        Map<T, ?> nameMap = selectNameMapByKeys(cFields, keys);
+    public Map<KEY, ?> selectObjectMapByKeys(List<CField> cFields, Collection<KEY> keys) {
+        Map<KEY, ?> nameMap = selectNameMapByKeys(cFields, keys);
         if (nameMap == null) {
             nameMap = selectNameListMapByKeys(cFields, keys);
         }
@@ -155,26 +155,26 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         return nameMap;
     }
 
-    public Map<T, Collection<String>> selectNameListMapByKeys(List<CField> cFields, Collection<T> keys) {
+    public Map<KEY, Collection<String>> selectNameListMapByKeys(List<CField> cFields, Collection<KEY> keys) {
         return selectNameListMapByKeys(keys);
     }
 
-    public Map<T, Collection<String>> selectNameListMapByKeys(Collection<T> keys) {
+    public Map<KEY, Collection<String>> selectNameListMapByKeys(Collection<KEY> keys) {
         return null;
     }
 
-    protected T[] rewriteKeyDataIfNeed(T key, CField cField, Map<T, Object> nameMap) {
-        T[] arr = (T[]) Array.newInstance(key.getClass(), 1);
+    protected KEY[] rewriteKeyDataIfNeed(KEY key, CField cField, Map<KEY, Object> nameMap) {
+        KEY[] arr = (KEY[]) Array.newInstance(key.getClass(), 1);
         arr[0] = key;
         return arr;
     }
 
-    protected Set<T> getKeyDataByFields(List<CField> cFields) {
-        Set<T> totalKeyDataList = new LinkedHashSet<>();
+    protected Set<KEY> getKeyDataByFields(List<CField> cFields) {
+        Set<KEY> totalKeyDataList = new LinkedHashSet<>();
         for (CField cField : cFields) {
             String[] keyFieldNames = getKeyFieldName(cField.getAnnotation());
             Object keyData = getKeyDataByField(cField.getBeanHandler(), keyFieldNames);
-            Collection<T> keyDataList = splitKeyData(keyData);
+            Collection<KEY> keyDataList = splitKeyData(keyData);
             if (keyDataList != null) {
                 totalKeyDataList.addAll(keyDataList);
                 cField.setKeyDataList(keyDataList);
@@ -210,8 +210,8 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         return null;
     }
 
-    protected Collection<T> splitKeyData(Object keyData) {
-        Collection<T> keyDataList = null;
+    protected Collection<KEY> splitKeyData(Object keyData) {
+        Collection<KEY> keyDataList = null;
         if (isNull(keyData)) {
             return null;
         } else if (keyData.getClass().isArray()) {
@@ -221,7 +221,7 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
                 if (isNull(e)) {
                     continue;
                 }
-                T key = cast(e, keyClass);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new ArrayList<>();
@@ -234,7 +234,7 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
                 if (isNull(e)) {
                     continue;
                 }
-                T key = cast(e, keyClass);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new ArrayList<>();
@@ -247,7 +247,7 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
                 if (isNull(e)) {
                     continue;
                 }
-                T key = cast(e, keyClass);
+                KEY key = cast(e, keyClass);
                 if (key != null) {
                     if (keyDataList == null) {
                         keyDataList = new ArrayList<>();
@@ -257,7 +257,7 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
             }
         } else {
             try {
-                T key = cast(keyData, keyClass);
+                KEY key = cast(keyData, keyClass);
                 if (key != null) {
                     keyDataList = Collections.singletonList(key);
                 }
@@ -268,11 +268,12 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         return keyDataList;
     }
 
-    protected void setProperty(List<CField> cFieldList, Map<T, Object> nameMap) {
+    protected void setProperty(List<CField> cFieldList, Map<KEY, Object> nameMap) {
+        Map<String, Object> stringKeyMap = null;
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
             Class<?> fieldType = cField.getField().getType();
-            Collection<T> keyDataList = cField.getKeyDataList();
+            Collection<KEY> keyDataList = cField.getKeyDataList();
             Object value = null;
             StringJoiner joiner = null;
             if (keyDataList == null || keyDataList.isEmpty()) {
@@ -284,9 +285,15 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
                     value = Array.newInstance(genericType, 0);
                 }
             } else if (keyDataList.size() == 1) {
-                T[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, nameMap);
+                KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, nameMap);
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(nameMap, rewriteKeyDataList);
+                if (value == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                    if (stringKeyMap == null) {
+                        stringKeyMap = toStringKeyMap(nameMap);
+                    }
+                    value = choseValue((Map<KEY, Object>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                }
                 if (List.class.isAssignableFrom(fieldType)) {
                     List list = new ArrayList(1);
                     if (value != null) {
@@ -330,11 +337,17 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
                     joiner = new StringJoiner(joinDelimiter);
                 }
                 int i = 0;
-                for (T keyData : keyDataList) {
+                for (KEY keyData : keyDataList) {
                     i++;
-                    T[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, nameMap);
+                    KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, nameMap);
                     setKeyData(cField, rewriteKeyDataList);
                     Object eachValue = choseValue(nameMap, rewriteKeyDataList);
+                    if (eachValue == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                        if (stringKeyMap == null) {
+                            stringKeyMap = toStringKeyMap(nameMap);
+                        }
+                        eachValue = choseValue((Map<KEY, Object>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                    }
                     if (eachValue == null) {
                         continue;
                     }
@@ -375,7 +388,7 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         }
     }
 
-    private void setKeyData(CField cField, T[] rewriteKeyDataList) {
+    private void setKeyData(CField cField, KEY[] rewriteKeyDataList) {
         if (rewriteKeyDataList == null) {
             return;
         }
@@ -392,11 +405,11 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         return TypeUtil.castIfBeanCast(object, type);
     }
 
-    protected Object choseValue(Map<T, Object> nameMap, T[] keyDataList) {
+    protected Object choseValue(Map<KEY, Object> nameMap, KEY[] keyDataList) {
         if (keyDataList == null) {
             return null;
         }
-        for (T nameMapKey : keyDataList) {
+        for (KEY nameMapKey : keyDataList) {
             Object name = nameMap.get(nameMapKey);
             if (name != null) {
                 return name;
@@ -412,6 +425,22 @@ public class KeyNameFieldIntercept<T, JoinPoint> implements ReturnFieldDispatchA
         } else {
             return joinDelimiter.toString();
         }
+    }
+
+    private Map<String, Object> toStringKeyMap(Map<KEY, Object> nameMap) {
+        Map<String, Object> result = new HashMap<>();
+        for (Map.Entry<KEY, Object> entry : nameMap.entrySet()) {
+            result.put(Objects.toString(entry.getKey(), null), entry.getValue());
+        }
+        return result;
+    }
+
+    private String[] toStringKey(KEY[] rewriteKeyDataList) {
+        String[] strings = new String[rewriteKeyDataList.length];
+        for (int i = 0; i < rewriteKeyDataList.length; i++) {
+            strings[i] = Objects.toString(rewriteKeyDataList[i], null);
+        }
+        return strings;
     }
 
 }

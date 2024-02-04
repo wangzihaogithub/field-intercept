@@ -289,6 +289,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
     }
 
     protected void setProperty(List<CField> cFieldList, Map<KEY, VALUE> valueMap) {
+        Map<String, VALUE> stringKeyMap = null;
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
             Class<?> fieldType = cField.getField().getType();
@@ -307,6 +308,12 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                 KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, valueMap);
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(valueMap, rewriteKeyDataList);
+                if (value == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                    if (stringKeyMap == null) {
+                        stringKeyMap = toStringKeyMap(valueMap);
+                    }
+                    value = choseValue((Map<KEY, VALUE>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                }
                 if (List.class.isAssignableFrom(fieldType)) {
                     Collection list = new ArrayList<>(1);
                     addList(cField, value, genericType, list::add);
@@ -347,6 +354,12 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                     KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, valueMap);
                     setKeyData(cField, rewriteKeyDataList);
                     VALUE eachValue = choseValue(valueMap, rewriteKeyDataList);
+                    if (eachValue == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                        if (stringKeyMap == null) {
+                            stringKeyMap = toStringKeyMap(valueMap);
+                        }
+                        eachValue = choseValue((Map<KEY, VALUE>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                    }
                     if (eachValue == null) {
                         continue;
                     }
@@ -462,6 +475,22 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
 
     public void setConfigurableEnvironment(Object configurableEnvironment) {
         this.configurableEnvironment = configurableEnvironment;
+    }
+
+    private Map<String, VALUE> toStringKeyMap(Map<KEY, VALUE> nameMap) {
+        Map<String, VALUE> result = new HashMap<>();
+        for (Map.Entry<KEY, VALUE> entry : nameMap.entrySet()) {
+            result.put(Objects.toString(entry.getKey(), null), entry.getValue());
+        }
+        return result;
+    }
+
+    private String[] toStringKey(KEY[] rewriteKeyDataList) {
+        String[] strings = new String[rewriteKeyDataList.length];
+        for (int i = 0; i < rewriteKeyDataList.length; i++) {
+            strings[i] = Objects.toString(rewriteKeyDataList[i], null);
+        }
+        return strings;
     }
 
 }
