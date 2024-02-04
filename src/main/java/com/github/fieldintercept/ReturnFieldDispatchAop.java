@@ -178,7 +178,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         before();
         try {
             returningAfter(null, result);
-        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException e) {
+        } catch (Exception e) {
             sneakyThrows(e);
         } finally {
             after();
@@ -189,7 +189,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         before();
         try {
             returningAfter(null, result);
-        } catch (InvocationTargetException | IllegalAccessException | InterruptedException | ExecutionException e) {
+        } catch (Exception e) {
             sneakyThrows(e);
         } finally {
             after();
@@ -829,7 +829,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 try {
                     collectAndAutowired(null, poll);
                     condition.signalAll();
-                } catch (ExecutionException | InterruptedException | InvocationTargetException | IllegalAccessException e) {
+                } catch (Exception e) {
                     sneakyThrows(e);
                 } finally {
                     lock.unlock();
