@@ -1,6 +1,8 @@
 package com.github.fieldintercept.springboot;
 
 import com.github.fieldintercept.*;
+import com.github.fieldintercept.annotation.ServiceOptions;
+import com.github.fieldintercept.util.AnnotationUtil;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.config.ReferenceConfig;
@@ -30,8 +32,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRegistrar {
-    public static final String BEAN_NAME_DUBBO_SERVICE_CONFIG = "RpcDubboBeanDefinitionRegistrar$DubboServiceConfig";
+public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRegistrar {
     public static final String LOCAL_ID = UUID.randomUUID().toString().replace("-", "");
     public static final String NAME_LOCAL_ID = "flocalid";
 
@@ -45,15 +46,33 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
     public void registerBeanDefinitions(AnnotationMetadata metadata, BeanDefinitionRegistry definitionRegistry) {
         super.registerBeanDefinitions(metadata, definitionRegistry);
 
-        definitionRegistry.registerBeanDefinition(BEAN_NAME_DUBBO_SERVICE_CONFIG,
-                BeanDefinitionBuilder.genericBeanDefinition(DubboServiceConfig.class,
-                        () -> new DubboServiceConfig(definitionRegistry, beanFactory, getProperties())).getBeanDefinition());
+        FieldinterceptProperties.ClusterRoleEnum roleEnum = environment.getProperty(FieldinterceptProperties.PREFIX + ".cluster.role", FieldinterceptProperties.ClusterRoleEnum.class, FieldinterceptProperties.ClusterRoleEnum.all);
+        switch (roleEnum) {
+            case provider:
+            case all: {
+                definitionRegistry.registerBeanDefinition("dubboBeanDefinitionRegistrar$DubboServiceConfig",
+                        BeanDefinitionBuilder.genericBeanDefinition(DubboServiceConfig.class,
+                                () -> new DubboServiceConfig(definitionRegistry, beanFactory, getProperties())).getBeanDefinition());
+                break;
+            }
+            default: {
+                break;
+            }
+        }
     }
 
     @Override
     protected <JOIN_POINT> Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory() {
-        Function<String, BiConsumer<JOIN_POINT, List<CField>>> parent = super.consumerFactory();
-        return new DubboReferenceFactory<>(parent, this::getProperties);
+        FieldinterceptProperties.ClusterRoleEnum roleEnum = environment.getProperty(FieldinterceptProperties.PREFIX + ".cluster.role", FieldinterceptProperties.ClusterRoleEnum.class, FieldinterceptProperties.ClusterRoleEnum.all);
+        switch (roleEnum) {
+            case consumer:
+            case all: {
+                return new DubboReferenceFactory<>(super.consumerFactory(), this::getProperties);
+            }
+            default: {
+                return super.consumerFactory();
+            }
+        }
     }
 
     private static void export(ServiceConfig<Api> serviceConfig) {
@@ -144,21 +163,15 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
 
         String ignoreLocalFieldIntercept = "ignoreLocalFieldIntercept";
         reference.setLoadbalance(ignoreLocalFieldIntercept);
-        ExtensionLoader.getExtensionLoader(LoadBalance.class).addExtension(ignoreLocalFieldIntercept, IgnoreLocalFieldInterceptLoadBalance.class);
+        ExtensionLoader.getExtensionLoader(LoadBalance.class).addExtension(ignoreLocalFieldIntercept, DubboServiceConfig.IgnoreLocalFieldInterceptLoadBalance.class);
         return reference;
     }
 
     private static String id(String name, String version) {
-        String id;
-        if (version == null || version.isEmpty()) {
-            id = name;
-        } else {
-            id = name + "v" + version;
-        }
-        return "FieldIntercept#" + id;
+        return "FieldIntercept#" + (version == null || version.isEmpty() ? name : name + "v" + version);
     }
 
-    protected static class DubboServiceConfig {
+    public static class DubboServiceConfig {
         private final BeanDefinitionRegistry registry;
         private final ListableBeanFactory beanFactory;
         private final FieldinterceptProperties properties;
@@ -177,6 +190,7 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
                 if (serviceConfig != null) {
                     export(serviceConfig);
                 }
+                InterceptVO.CACHE_MAP = null;
             };
         }
 
@@ -186,12 +200,22 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
         }
 
         private static class InterceptVO {
-            final ReturnFieldDispatchAop.SelectMethodHolder intercept;
-            final ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean;
+            private static Map<Class<?>, Boolean> CACHE_MAP = new ConcurrentHashMap<>();
 
-            private InterceptVO(ReturnFieldDispatchAop.SelectMethodHolder intercept, ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean) {
+            private final ReturnFieldDispatchAop.SelectMethodHolder intercept;
+            private final ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean;
+            private final String beanName;
+            private final ServiceOptions options;
+
+            private InterceptVO(ReturnFieldDispatchAop.SelectMethodHolder intercept, ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean, String beanName) {
                 this.intercept = intercept;
                 this.serviceBean = serviceBean;
+                this.beanName = beanName;
+                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
+            }
+
+            private boolean isRpc() {
+                return options == null || options.rpc();
             }
         }
 
@@ -199,24 +223,28 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
 
             @Override
             public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
-                InterceptVO interceptVO = getInterceptVO(bean);
-                if (interceptVO != null) {
+                InterceptVO interceptVO = getInterceptVO(bean, beanName);
+                if (interceptVO != null && interceptVO.isRpc()) {
                     if (serviceConfig == null) {
-                        serviceConfig = addService(api, properties.getDubbo());
+                        serviceConfig = addService(api, properties.getCluster().getDubbo());
                         registry.registerBeanDefinition("fieldInterceptServiceConfig",
                                 BeanDefinitionBuilder.genericBeanDefinition(ServiceConfig.class, () -> serviceConfig).getBeanDefinition());
                     }
-                    String interceptBeanName = getFieldInterceptBeanName(interceptVO.intercept.getClass());
-                    api.put(interceptBeanName, interceptVO.intercept);
+                    api.put(interceptVO.beanName, interceptVO.intercept, interceptVO.serviceBean);
                 }
                 return bean;
             }
 
-            private InterceptVO getInterceptVO(Object bean) {
+            private InterceptVO getInterceptVO(Object bean, String beanName) {
                 if (bean instanceof ServiceBean && ((ServiceBean<?>) bean).getRef() instanceof ReturnFieldDispatchAop.SelectMethodHolder) {
-                    return new InterceptVO((ReturnFieldDispatchAop.SelectMethodHolder) ((ServiceBean<?>) bean).getRef(), (ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder>) bean);
+                    ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean = (ServiceBean) bean;
+                    ReturnFieldDispatchAop.SelectMethodHolder ref = serviceBean.getRef();
+                    return new InterceptVO(
+                            ref,
+                            serviceBean,
+                            getFieldInterceptBeanName(ref.getClass()));
                 } else if (bean instanceof ReturnFieldDispatchAop.SelectMethodHolder) {
-                    return new InterceptVO((ReturnFieldDispatchAop.SelectMethodHolder) bean, null);
+                    return new InterceptVO((ReturnFieldDispatchAop.SelectMethodHolder) bean, null, beanName);
                 } else {
                     return null;
                 }
@@ -231,123 +259,186 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
                 }
             }
         }
-    }
 
-    private static class ApiImpl implements Api {
-        private final Map<String, ReturnFieldDispatchAop.SelectMethodHolder> interceptMap = new ConcurrentHashMap<>();
-        private final Map<String, Service> serviceMap = new ConcurrentHashMap<>();
+        private static class ApiImpl implements Api {
+            private final Map<String, ReturnFieldDispatchAop.SelectMethodHolder> interceptMap = new ConcurrentHashMap<>();
+            private final Map<String, Service> serviceMap = new ConcurrentHashMap<>();
+            private final Map<String, ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder>> interceptServiceBeanMap = new ConcurrentHashMap<>();
 
-        private Service getService(String beanName) {
-            return serviceMap.computeIfAbsent(beanName, e -> {
-                ReturnFieldDispatchAop.SelectMethodHolder intercept = interceptMap.get(beanName);
-                if (intercept == null) {
-                    return new Service(e, null);
-                } else {
-                    return new Service(e, intercept);
+            private Service getService(String beanName) {
+                return serviceMap.computeIfAbsent(beanName, e -> {
+                    ReturnFieldDispatchAop.SelectMethodHolder intercept = interceptMap.get(beanName);
+                    if (intercept == null) {
+                        return new Service(e, null);
+                    } else {
+                        return new Service(e, intercept);
+                    }
+                });
+            }
+
+            private ReturnFieldDispatchAop.SelectMethodHolder put(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept, ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean) {
+                if (serviceBean != null) {
+                    interceptServiceBeanMap.put(beanName, serviceBean);
                 }
-            });
-        }
-
-        private ReturnFieldDispatchAop.SelectMethodHolder put(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept) {
-            return interceptMap.put(beanName, intercept);
-        }
-
-        @Override
-        public Map<Object, Object> selectNameMapByKeys(String beanName, Collection<Object> keys) {
-            Service service = getService(beanName);
-            if (service == null) {
-                return Collections.emptyMap();
-            } else {
-                return service.selectNameMapByKeys(keys);
-            }
-        }
-
-        @Override
-        public Map<Object, Object> selectValueMapByKeys(String beanName, Collection<Object> keys) {
-            Service service = getService(beanName);
-            if (service == null) {
-                return Collections.emptyMap();
-            } else {
-                return service.selectValueMapByKeys(keys);
-            }
-        }
-
-        @Override
-        public String toString() {
-            return "DubboProviderGenericService" + serviceMap;
-        }
-
-        private static class Service {
-            private final String beanName;
-            private final ReturnFieldDispatchAop.SelectMethodHolder intercept;
-            private final AtomicBoolean bindMethodFlag = new AtomicBoolean();
-            private volatile Function<Collection, Map<Object, Object>> selectNameMapByKeys;
-            private volatile Function<Collection, Map<Object, Object>> selectValueMapByKeys;
-
-            private Service(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept) {
-                this.beanName = beanName;
-                this.intercept = intercept;
+                return interceptMap.put(beanName, intercept);
             }
 
-            private static Function<Collection, Map<Object, Object>> bindMethod(KeyNameFieldIntercept intercept) {
-                Function<Collection, Map<Object, Object>> method = intercept.getSelectNameMapByKeys();
-                if (method != null) {
-                    return method;
-                } else {
-                    return arg0 -> intercept.selectNameMapByKeys(arg0);
-                }
-            }
-
-            private static Function<Collection, Map<Object, Object>> bindMethod(KeyValueFieldIntercept intercept) {
-                Function<Collection, Map<Object, Object>> method = intercept.getSelectValueMapByKeys();
-                if (method != null) {
-                    return method;
-                } else {
-                    return arg0 -> intercept.selectValueMapByKeys(arg0);
-                }
-            }
-
-            private void bindMethod(Object intercept) {
-                if (intercept instanceof CompositeFieldIntercept) {
-                    CompositeFieldIntercept compositeFieldIntercept = (CompositeFieldIntercept) intercept;
-                    selectNameMapByKeys = bindMethod(compositeFieldIntercept.keyNameFieldIntercept());
-                    selectValueMapByKeys = bindMethod(compositeFieldIntercept.keyValueFieldIntercept());
-                } else if (intercept instanceof KeyNameFieldIntercept) {
-                    selectNameMapByKeys = bindMethod((KeyNameFieldIntercept) intercept);
-                } else if (intercept instanceof KeyValueFieldIntercept) {
-                    selectValueMapByKeys = bindMethod((KeyValueFieldIntercept) intercept);
-                }
-            }
-
-            public Map<Object, Object> selectNameMapByKeys(Collection<Object> keys) {
-                if (bindMethodFlag.compareAndSet(false, true)) {
-                    bindMethod(intercept);
-                }
-                if (selectNameMapByKeys == null) {
+            @Override
+            public Map<Object, Object> selectNameMapByKeys(String beanName, Collection<Object> keys) {
+                Service service = getService(beanName);
+                if (service == null) {
                     return Collections.emptyMap();
                 } else {
-                    return selectNameMapByKeys.apply(keys);
+                    return service.selectNameMapByKeys(keys);
                 }
             }
 
-            public Map<Object, Object> selectValueMapByKeys(Collection<Object> keys) {
-                if (bindMethodFlag.compareAndSet(false, true)) {
-                    bindMethod(intercept);
-                }
-                if (selectValueMapByKeys == null) {
+            @Override
+            public Map<Object, Object> selectValueMapByKeys(String beanName, Collection<Object> keys) {
+                Service service = getService(beanName);
+                if (service == null) {
                     return Collections.emptyMap();
                 } else {
-                    return selectValueMapByKeys.apply(keys);
+                    return service.selectValueMapByKeys(keys);
                 }
             }
 
             @Override
             public String toString() {
-                return "DubboProviderGenericService{" +
-                        beanName +
-                        '}';
+                return "DubboProviderGenericService" + serviceMap;
+            }
+
+            private static class Service {
+                private final String beanName;
+                private final ReturnFieldDispatchAop.SelectMethodHolder intercept;
+                private final AtomicBoolean bindMethodFlag = new AtomicBoolean();
+                private volatile Function<Collection, Map<Object, Object>> selectNameMapByKeys;
+                private volatile Function<Collection, Map<Object, Object>> selectValueMapByKeys;
+
+                private Service(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept) {
+                    this.beanName = beanName;
+                    this.intercept = intercept;
+                }
+
+                private static Function<Collection, Map<Object, Object>> bindMethod(KeyNameFieldIntercept intercept) {
+                    Function<Collection, Map<Object, Object>> method = intercept.getSelectNameMapByKeys();
+                    if (method != null) {
+                        return method;
+                    } else {
+                        return arg0 -> intercept.selectNameMapByKeys(arg0);
+                    }
+                }
+
+                private static Function<Collection, Map<Object, Object>> bindMethod(KeyValueFieldIntercept intercept) {
+                    Function<Collection, Map<Object, Object>> method = intercept.getSelectValueMapByKeys();
+                    if (method != null) {
+                        return method;
+                    } else {
+                        return arg0 -> intercept.selectValueMapByKeys(arg0);
+                    }
+                }
+
+                private void bindMethod(Object intercept) {
+                    if (intercept instanceof CompositeFieldIntercept) {
+                        CompositeFieldIntercept compositeFieldIntercept = (CompositeFieldIntercept) intercept;
+                        selectNameMapByKeys = bindMethod(compositeFieldIntercept.keyNameFieldIntercept());
+                        selectValueMapByKeys = bindMethod(compositeFieldIntercept.keyValueFieldIntercept());
+                    } else if (intercept instanceof KeyNameFieldIntercept) {
+                        selectNameMapByKeys = bindMethod((KeyNameFieldIntercept) intercept);
+                    } else if (intercept instanceof KeyValueFieldIntercept) {
+                        selectValueMapByKeys = bindMethod((KeyValueFieldIntercept) intercept);
+                    }
+                }
+
+                public Map<Object, Object> selectNameMapByKeys(Collection<Object> keys) {
+                    if (bindMethodFlag.compareAndSet(false, true)) {
+                        bindMethod(intercept);
+                    }
+                    if (selectNameMapByKeys == null) {
+                        return Collections.emptyMap();
+                    } else {
+                        return selectNameMapByKeys.apply(keys);
+                    }
+                }
+
+                public Map<Object, Object> selectValueMapByKeys(Collection<Object> keys) {
+                    if (bindMethodFlag.compareAndSet(false, true)) {
+                        bindMethod(intercept);
+                    }
+                    if (selectValueMapByKeys == null) {
+                        return Collections.emptyMap();
+                    } else {
+                        return selectValueMapByKeys.apply(keys);
+                    }
+                }
+
+                @Override
+                public String toString() {
+                    return "DubboProviderGenericService{" +
+                            beanName +
+                            '}';
+                }
             }
         }
+
+        /**
+         * 忽略本地调用
+         */
+        public static class IgnoreLocalFieldInterceptLoadBalance implements LoadBalance {
+            private final ShortestResponseLoadBalance loadBalance = new ShortestResponseLoadBalance();
+
+            @Override
+            public <T> Invoker<T> select(List<Invoker<T>> invokers, URL url, Invocation invocation) throws RpcException {
+                if (invokers == null || invokers.isEmpty()) {
+                    return null;
+                }
+                List<Invoker<T>> selectList = selectList(invokers, url.getParameter("application"));
+                int size = selectList.size();
+                switch (size) {
+                    case 0: {
+                        return loadBalance.select(invokers, url, invocation);
+                    }
+                    case 1: {
+                        return selectList.get(0);
+                    }
+                    default: {
+                        return loadBalance.select(selectList, url, invocation);
+                    }
+                }
+            }
+
+            private static <T> List<Invoker<T>> selectList(List<Invoker<T>> invokers, String localApplication) {
+                List<Invoker<T>> list = new ArrayList<>(invokers.size());
+                if (isEmpty(localApplication)) {
+                    for (Invoker<T> invoker : invokers) {
+                        if (!isInJvm(invoker.getUrl())) {
+                            list.add(invoker);
+                        }
+                    }
+                } else {
+                    for (Invoker<T> invoker : invokers) {
+                        URL invokerUrl = invoker.getUrl();
+                        if (isInJvm(invokerUrl)) {
+                            continue;
+                        }
+                        String remoteApplication = invokerUrl.getParameter("remote.application");
+                        if (!Objects.equals(remoteApplication, localApplication)) {
+                            list.add(invoker);
+                        }
+                    }
+                }
+                return list;
+            }
+
+            private static boolean isEmpty(String str) {
+                return str == null || str.isEmpty();
+            }
+
+            private static boolean isInJvm(URL url) {
+                return Objects.equals(url.getParameter(NAME_LOCAL_ID), LOCAL_ID);
+            }
+        }
+
     }
 
     private static class DubboReferenceFactory<JOIN_POINT> implements Function<String, BiConsumer<JOIN_POINT, List<CField>>> {
@@ -375,7 +466,7 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
                 if (reference == null) {
                     synchronized (this) {
                         if (reference == null) {
-                            reference = addReference(properties.get().getDubbo());
+                            reference = addReference(properties.get().getCluster().getDubbo());
                         }
                     }
                 }
@@ -427,54 +518,6 @@ public class RpcDubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitio
         @Override
         public String toString() {
             return "DubboReferenceFactory" + beanMap;
-        }
-    }
-
-    public static class IgnoreLocalFieldInterceptLoadBalance implements LoadBalance {
-        private final ShortestResponseLoadBalance loadBalance = new ShortestResponseLoadBalance();
-
-        private static boolean isEmpty(String str) {
-            return str == null || str.isEmpty();
-        }
-
-        private static boolean isInJvm(URL url) {
-            return Objects.equals(url.getParameter(NAME_LOCAL_ID), LOCAL_ID);
-        }
-
-        @Override
-        public <T> Invoker<T> select(List<Invoker<T>> invokers, URL url, Invocation invocation) throws RpcException {
-            if (invokers == null || invokers.isEmpty()) {
-                return null;
-            }
-
-            String localApplication = url.getParameter("application");
-            List<Invoker<T>> selectList = new ArrayList<>(invokers.size());
-            if (isEmpty(localApplication)) {
-                for (Invoker<T> invoker : invokers) {
-                    if (!isInJvm(invoker.getUrl())) {
-                        selectList.add(invoker);
-                    }
-                }
-            } else {
-                for (Invoker<T> invoker : invokers) {
-                    URL invokerUrl = invoker.getUrl();
-                    if (isInJvm(invokerUrl)) {
-                        continue;
-                    }
-                    String remoteApplication = invokerUrl.getParameter("remote.application");
-                    if (!Objects.equals(remoteApplication, localApplication)) {
-                        selectList.add(invoker);
-                    }
-                }
-            }
-            int size = selectList.size();
-            if (size == 0) {
-                return loadBalance.select(invokers, url, invocation);
-            } else if (size == 1) {
-                return selectList.get(0);
-            } else {
-                return loadBalance.select(selectList, url, invocation);
-            }
         }
     }
 

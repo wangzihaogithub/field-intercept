@@ -11,9 +11,16 @@ import java.util.Map;
 public class FieldinterceptProperties {
     public static final String PREFIX = "spring.fieldintercept";
     private static final long serialVersionUID = 1L;
+
+    private boolean enabled = true;
+    /**
+     * 集群
+     */
+    @NestedConfigurationProperty
+    private final Cluster cluster = new Cluster();
+
     /**
      * 业务实体类的包路径
-     * <p>
      * 用于快速判断是否是业务实体类 ,如果是业务实体类,则会深度遍历访问内部字段
      *
      * @return 包路径. 例如 {"com.ig", "com.xx"}
@@ -63,6 +70,14 @@ public class FieldinterceptProperties {
      */
     private int batchAggregationMinConcurrentCount = 1;
 
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
     /**
      * 注册自定义注解
      * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
@@ -74,11 +89,6 @@ public class FieldinterceptProperties {
      * @return 需要添加的自定义注解
      */
     private Class<? extends Annotation>[] myAnnotations = new Class[0];
-
-    /**
-     * true=使用远程注册与调用
-     */
-    private RpcEnum rpc = RpcEnum.disabled;
 
     public String[] getBeanBasePackages() {
         return beanBasePackages;
@@ -144,27 +154,62 @@ public class FieldinterceptProperties {
         this.myAnnotations = myAnnotations;
     }
 
-    public RpcEnum getRpc() {
-        return rpc;
+    public Cluster getCluster() {
+        return cluster;
     }
 
-    public void setRpc(RpcEnum rpc) {
-        this.rpc = rpc;
-    }
-
-    public enum RpcEnum {
-        disabled,
+    public enum ClusterRpcEnum {
         dubbo
     }
 
-    /**
-     * Dubbo
-     */
-    @NestedConfigurationProperty
-    private final Dubbo dubbo = new Dubbo();
+    public enum ClusterRoleEnum {
+        provider,
+        consumer,
+        all
+    }
 
-    public Dubbo getDubbo() {
-        return dubbo;
+    public static class Cluster {
+        private boolean enabled = false;
+        /**
+         * dubbo=使用dubbo远程注册与调用,
+         * disabled=关闭远程
+         */
+        private ClusterRpcEnum rpc = ClusterRpcEnum.dubbo;
+        private ClusterRoleEnum role = ClusterRoleEnum.all;
+
+        /**
+         * Dubbo
+         */
+        @NestedConfigurationProperty
+        private final Dubbo dubbo = new Dubbo();
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public Dubbo getDubbo() {
+            return dubbo;
+        }
+
+        public ClusterRpcEnum getRpc() {
+            return rpc;
+        }
+
+        public void setRpc(ClusterRpcEnum rpc) {
+            this.rpc = rpc;
+        }
+
+        public ClusterRoleEnum getRole() {
+            return role;
+        }
+
+        public void setRole(ClusterRoleEnum role) {
+            this.role = role;
+        }
     }
 
     public static class Dubbo {

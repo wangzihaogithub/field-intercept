@@ -42,10 +42,15 @@ public class AnnotationUtil {
 
     public static <T extends Annotation> T findExtendsAnnotation(AnnotatedElement element, Collection<Class<? extends Annotation>> finds, Class<T> type, Map<Class<?>, Boolean> cacheMap) {
         Annotation[] fieldAnnotations = element.getDeclaredAnnotations();
-        for (Annotation annotation : fieldAnnotations) {
-            boolean existAnnotation = isExistAnnotation(annotation.annotationType(), finds, cacheMap);
-            if (existAnnotation) {
-                return cast(annotation, type);
+        if (fieldAnnotations != null && fieldAnnotations.length > 0) {
+            if (cacheMap == null) {
+                cacheMap = new HashMap<>();
+            }
+            for (Annotation annotation : fieldAnnotations) {
+                boolean existAnnotation = isExistAnnotation(annotation.annotationType(), finds, cacheMap);
+                if (existAnnotation) {
+                    return cast(annotation, type);
+                }
             }
         }
         return null;
@@ -53,10 +58,15 @@ public class AnnotationUtil {
 
     public static <T extends Annotation> T findDeclaredAnnotation(AnnotatedElement element, Collection<Class<? extends Annotation>> finds, Map<Class<?>, Boolean> cacheMap) {
         Annotation[] fieldAnnotations = element.getDeclaredAnnotations();
-        for (Annotation annotation : fieldAnnotations) {
-            boolean existAnnotation = isExistAnnotation(annotation.annotationType(), finds, cacheMap);
-            if (existAnnotation) {
-                return (T) annotation;
+        if (fieldAnnotations != null && fieldAnnotations.length > 0) {
+            if (cacheMap == null) {
+                cacheMap = new HashMap<>();
+            }
+            for (Annotation annotation : fieldAnnotations) {
+                boolean existAnnotation = isExistAnnotation(annotation.annotationType(), finds, cacheMap);
+                if (existAnnotation) {
+                    return (T) annotation;
+                }
             }
         }
         return null;

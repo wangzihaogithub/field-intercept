@@ -17,12 +17,14 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -103,6 +105,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     private long batchAggregationMilliseconds = 10;
     private boolean batchAggregation;
     private int batchAggregationMinConcurrentCount = 1;
+    private BiPredicate<JOIN_POINT, Object> enabled = null;
 
     public ReturnFieldDispatchAop() {
     }
@@ -153,6 +156,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     public void addBeanPackagePaths(String paths) {
         getMyProjectPackagePaths().add(Arrays.asList(paths.split("[./]")));
+    }
+
+    public BiPredicate<JOIN_POINT, Object> getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(BiPredicate<JOIN_POINT, Object> enabled) {
+        this.enabled = enabled;
     }
 
     public Set<List<String>> getMyProjectPackagePaths() {
@@ -224,6 +235,11 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected void returningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+        BiPredicate<JOIN_POINT, Object> enabled = getEnabled();
+        if (enabled != null && !enabled.test(joinPoint, result)) {
+            return;
+        }
+
         PlatformDependentUtil.logTrace(ReturnFieldDispatchAop.class, "afterReturning into. joinPoint={}, result={}", joinPoint, result);
 
         if (isNeedPending(joinPoint, result)) {
@@ -267,7 +283,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         Set<Object> visitObjectIdSet = new HashSet<>();
         visitObjectIdSet.add(objectId(result));
 
-        List<CField> allFieldList = new ArrayList<>();
+        List<CField> allFieldList = new SplitCFieldList();
         int step = 1;
         Object next = result;
         try {
@@ -620,8 +636,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     choseFieldConsumer = routerFieldConsumer.defaultElse();
                 }
                 if (choseFieldConsumer.value().length() > 0) {
-                    groupCollectMap.computeIfAbsent(choseFieldConsumer.value(), e -> new ArrayList<>())
-                            .add(new CField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer, configurableEnvironment));
+                    addCollectField(groupCollectMap, choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer, configurableEnvironment);
                 }
             }
 
@@ -631,9 +646,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 if (beanHandler == null) {
                     beanHandler = new BeanMap(bean);
                 }
-                CField cField = new CField(fieldConsumer.value(), beanHandler, field, fieldConsumer, configurableEnvironment);
-                groupCollectMap.computeIfAbsent(fieldConsumer.value(), e -> new ArrayList<>())
-                        .add(cField);
+                addCollectField(groupCollectMap, fieldConsumer.value(), beanHandler, field, fieldConsumer, configurableEnvironment);
                 continue;
             }
 
@@ -643,9 +656,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 if (beanHandler == null) {
                     beanHandler = new BeanMap(bean);
                 }
-                CField cField = new CField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer, configurableEnvironment);
-                groupCollectMap.computeIfAbsent(EnumFieldConsumer.NAME, e -> new ArrayList<>())
-                        .add(cField);
+                addCollectField(groupCollectMap, EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer, configurableEnvironment);
                 continue;
             }
 
@@ -657,9 +668,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         beanHandler = new BeanMap(bean);
                     }
                     String name = getMyAnnotationConsumerName(myAnnotationClass);
-                    CField cField = new CField(name, beanHandler, field, myAnnotation, configurableEnvironment);
-                    groupCollectMap.computeIfAbsent(name, e -> new ArrayList<>())
-                            .add(cField);
+                    addCollectField(groupCollectMap, name, beanHandler, field, myAnnotation, configurableEnvironment);
                 }
             }
 
@@ -695,6 +704,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 }
             }
         }
+    }
+
+    /**
+     * 添加收集到的字段
+     */
+    private static void addCollectField(Map<String, List<CField>> groupCollectMap,
+                                        String consumerName, BeanMap beanHandler, Field field,
+                                        Annotation annotation, Object configurableEnvironment) {
+        CField cField = new CField(consumerName, beanHandler, field, annotation, configurableEnvironment);
+        groupCollectMap.computeIfAbsent(consumerName, e -> new SplitCFieldList())
+                .add(cField);
     }
 
     /**
@@ -837,7 +857,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final Class<ANNOTATION> type;
         private final Collection<Class<? extends Annotation>> alias;
         private final int cacheSize;
-        private final Map<Class<?>, Boolean> findCache = new ConcurrentHashMap<>(64);
+        private final Map<Class<?>, Boolean> findCache = new ConcurrentHashMap<>(32);
         private final Map<AnnotatedElement, ANNOTATION> instanceCache;
 
         private AnnotationCache(Class<ANNOTATION> type, Collection<Class<? extends Annotation>> alias, int cacheSize) {
@@ -960,4 +980,110 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
         throw cause;
     }
+
+    public static SplitCFieldList split(List<CField> cFieldList) {
+        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
+            return (SplitCFieldList) cFieldList;
+        } else {
+            return new SplitCFieldList(cFieldList);
+        }
+    }
+
+    public static class SplitCFieldList extends ArrayList<CField> {
+        private final AtomicBoolean parseFlag = new AtomicBoolean();
+        private List<CField> keyNameFieldList;
+        private List<CField> keyValueFieldList;
+
+        public SplitCFieldList(List<CField> fieldList) {
+            super(fieldList);
+        }
+
+        public SplitCFieldList() {
+        }
+
+        @Override
+        public void clear() {
+            parseFlag.set(false);
+            super.clear();
+        }
+
+        @Override
+        public boolean remove(Object o) {
+            parseFlag.set(false);
+            return super.remove(o);
+        }
+
+        @Override
+        public boolean removeIf(Predicate<? super CField> filter) {
+            parseFlag.set(false);
+            return super.removeIf(filter);
+        }
+
+        @Override
+        public CField remove(int index) {
+            parseFlag.set(false);
+            return super.remove(index);
+        }
+
+        @Override
+        public boolean add(CField cField) {
+            parseFlag.set(false);
+            return super.add(cField);
+        }
+
+        @Override
+        public boolean addAll(Collection<? extends CField> c) {
+            parseFlag.set(false);
+            return super.addAll(c);
+        }
+
+        @Override
+        public boolean addAll(int index, Collection<? extends CField> c) {
+            parseFlag.set(false);
+            return super.addAll(index, c);
+        }
+
+        @Override
+        public void add(int index, CField element) {
+            parseFlag.set(false);
+            super.add(index, element);
+        }
+
+        private void parse() {
+            if (parseFlag.compareAndSet(false, true)) {
+                List<CField> keyNameFields = null;
+                List<CField> keyValueFields = null;
+                for (CField e : this) {
+                    if (e.existPlaceholder() || !isString(e)) {
+                        if (keyValueFields == null) {
+                            keyValueFields = new ArrayList<>(Math.min(size(), 16));
+                        }
+                        keyValueFields.add(e);
+                    } else {
+                        if (keyNameFields == null) {
+                            keyNameFields = new ArrayList<>(Math.min(size(), 16));
+                        }
+                        keyNameFields.add(e);
+                    }
+                }
+                this.keyNameFieldList = keyNameFields;
+                this.keyValueFieldList = keyValueFields;
+            }
+        }
+
+        public List<CField> getKeyNameFieldList() {
+            parse();
+            return keyNameFieldList;
+        }
+
+        public List<CField> getKeyValueFieldList() {
+            parse();
+            return keyValueFieldList;
+        }
+
+        private static boolean isString(CField field) {
+            return field.getType() == String.class || field.getGenericType() == String.class;
+        }
+    }
+
 }

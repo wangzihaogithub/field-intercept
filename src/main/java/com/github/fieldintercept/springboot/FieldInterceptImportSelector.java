@@ -15,15 +15,17 @@ public class FieldInterceptImportSelector implements DeferredImportSelector, Env
 
     @Override
     public String[] selectImports(AnnotationMetadata metadata) {
-        FieldinterceptProperties.RpcEnum rpcEnum = environment.getProperty(FieldinterceptProperties.PREFIX + ".rpc", FieldinterceptProperties.RpcEnum.class, FieldinterceptProperties.RpcEnum.disabled);
-        switch (rpcEnum) {
-            default:
-            case disabled: {
-                return new String[]{"com.github.fieldintercept.springboot.FieldInterceptBeanDefinitionRegistrar"};
+        boolean enabledCluster = environment.getProperty(FieldinterceptProperties.PREFIX + ".cluster.enabled", boolean.class, false);
+        if (enabledCluster) {
+            FieldinterceptProperties.ClusterRpcEnum clusterEnum = environment.getProperty(FieldinterceptProperties.PREFIX + ".cluster.rpc", FieldinterceptProperties.ClusterRpcEnum.class, FieldinterceptProperties.ClusterRpcEnum.dubbo);
+            switch (clusterEnum) {
+                default:
+                case dubbo: {
+                    return new String[]{"com.github.fieldintercept.springboot.DubboBeanDefinitionRegistrar"};
+                }
             }
-            case dubbo: {
-                return new String[]{"com.github.fieldintercept.springboot.RpcDubboBeanDefinitionRegistrar"};
-            }
+        } else {
+            return new String[]{"com.github.fieldintercept.springboot.FieldInterceptBeanDefinitionRegistrar"};
         }
     }
 

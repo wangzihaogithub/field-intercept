@@ -38,6 +38,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     public static final String BEAN_NAME_ENUM_FIELD_INTERCEPT = EnumFieldConsumer.NAME;
     public static final String BEAN_NAME_ENUM_DB_FIELD_INTERCEPT = EnumDBFieldConsumer.NAME;
 
+    protected boolean enabled = true;
     protected String[] beanBasePackages = {};
     protected boolean parallelQuery;
     protected int parallelQueryMaxThreads;
@@ -118,6 +119,9 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
         if (aop.getTaskExecutor() == null) {
             aop.setTaskExecutor(taskExecutorFunction());
+        }
+        if (!enabled) {
+            aop.setEnabled((j, r) -> false);
         }
     }
 
@@ -244,6 +248,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         this.batchAggregationMinConcurrentCount = properties.getBatchAggregationMinConcurrentCount();
         this.batchAggregation = properties.isBatchAggregation();
         this.aopClass = properties.getAopClass();
+        this.enabled = properties.isEnabled();
     }
 
     @Override
