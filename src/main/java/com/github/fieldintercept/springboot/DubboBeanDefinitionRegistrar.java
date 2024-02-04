@@ -133,6 +133,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
         // reference
         ReferenceConfig<Api> reference = new ReferenceConfig<>();
         reference.setScope("remote");
+        reference.setCheck(dubbo.isCheck());
         if (dubbo.getTimeout() != null) {
             reference.setTimeout(dubbo.getTimeout());
         }

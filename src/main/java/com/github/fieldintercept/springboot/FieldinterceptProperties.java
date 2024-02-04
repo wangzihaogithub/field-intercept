@@ -239,7 +239,10 @@ public class FieldinterceptProperties {
          * Timeout value for service invocation, default value is 0
          */
         private Integer timeout;
-
+        /**
+         * Check if service provider exists, if not exists, it will be fast fail
+         */
+        private boolean check = false;
         /**
          * dubbo filter
          */
@@ -263,6 +266,14 @@ public class FieldinterceptProperties {
          * Maximum connections service provider can accept, default value is 0 - connection is shared
          */
         private Integer connections;
+
+        public boolean isCheck() {
+            return check;
+        }
+
+        public void setCheck(boolean check) {
+            this.check = check;
+        }
 
         public String[] getRegistry() {
             return registry;
