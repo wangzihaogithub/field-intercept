@@ -2,13 +2,11 @@ package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.ShareThreadMap;
 import com.github.fieldintercept.util.TypeUtil;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -17,31 +15,25 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
+public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<KEY> keyClass;
     protected final Class<VALUE> valueClass;
-    protected final ShareThreadMap<KEY, VALUE> shareThreadMap;
     protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
-    protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
     protected Object configurableEnvironment;
 
     public KeyValueFieldIntercept() {
-        this(null, null, 0);
+        this(null, null);
     }
 
-    public KeyValueFieldIntercept(int shareTimeout) {
-        this(null, null, shareTimeout);
+    public KeyValueFieldIntercept(Class<KEY> keyClass) {
+        this(keyClass, null);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, int shareTimeout) {
-        this(keyClass, null, shareTimeout);
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
+        this(keyClass, null, selectValueMapByKeys);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
-        this(keyClass, null, selectValueMapByKeys, shareTimeout);
-    }
-
-    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
         if (keyClass == null) {
             if (getClass() != KeyValueFieldIntercept.class) {
                 try {
@@ -64,7 +56,6 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
         this.keyClass = keyClass;
         this.valueClass = valueClass;
         this.selectValueMapByKeys = selectValueMapByKeys;
-        this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
     public Class<VALUE> getValueClass() {
@@ -80,7 +71,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
     }
 
     @Override
-    public final void accept(JoinPoint joinPoint, List<CField> cFields) {
+    public final void accept(JOIN_POINT joinPoint, List<CField> cFields) {
         Set<KEY> keyDataList = getKeyDataByFields(cFields);
         if (keyDataList == null || keyDataList.isEmpty()) {
             return;
@@ -92,31 +83,11 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
         setProperty(cFields, valueMap);
     }
 
-    @Override
-    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        threadMap.computeIfAbsent(id(result), e -> new ArrayList<>())
-                .add(Thread.currentThread());
-    }
-
-    @Override
-    public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        List<Thread> threadList = threadMap.remove(id(result));
-        if (threadList == null) {
-            return;
-        }
-        for (Thread thread : threadList) {
-            shareThreadMap.remove(thread);
-        }
-    }
-
-    private int id(Object result) {
-        return System.identityHashCode(result);
-    }
-
     private Map<KEY, VALUE> cacheSelectValueMapByKeys(List<CField> cFields, Set<KEY> keys) {
         Map<KEY, VALUE> valueMap = new LinkedHashMap<>();
+        Map<KEY, VALUE> currentLocalCache = ReturnFieldDispatchAop.getCurrentLocalCache(cFields, this);
         for (KEY key : keys) {
-            VALUE value = shareThreadMap.get(key);
+            VALUE value = currentLocalCache.get(key);
             if (value != null) {
                 valueMap.put(key, value);
             }
@@ -135,7 +106,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
         valueMap.putAll(loadValueMap);
 
         // 放入缓存
-        shareThreadMap.putAll(loadValueMap);
+        currentLocalCache.putAll(loadValueMap);
         return valueMap;
     }
 
@@ -274,7 +245,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                 addList(cField, o, genericType, list);
             }
         } else {
-            String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+            String resolveValue = cField.resolvePlaceholders(value);
             if (resolveValue != null) {
                 value = resolveValue;
             }
@@ -324,7 +295,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                     value = (VALUE) list;
                 } else if (fieldType.isArray()) {
                     Object array = Array.newInstance(genericType, 1);
-                    String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+                    String resolveValue = cField.resolvePlaceholders(value);
                     if (resolveValue != null) {
                         value = (VALUE) cast(resolveValue, genericType);
                     }
@@ -368,7 +339,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                     } else if (set != null) {
                         addList(cField, eachValue, genericType, set::add);
                     } else if (array != null) {
-                        String resolveValue = cField.resolvePlaceholders(configurableEnvironment, eachValue);
+                        String resolveValue = cField.resolvePlaceholders(eachValue);
                         if (resolveValue != null) {
                             eachValue = (VALUE) cast(resolveValue, genericType);
                         }
@@ -389,7 +360,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JoinPoint> implements ReturnFiel
                 if (fieldType.isEnum() && value.getClass().isEnum()) {
                     cField.setValue(value);
                 } else {
-                    String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+                    String resolveValue = cField.resolvePlaceholders(value);
                     if (resolveValue != null) {
                         cField.setValue(resolveValue);
                     }

@@ -2,6 +2,7 @@ package com.github.case2.controller;
 
 import com.github.case2.dto.OrderSelectListResp;
 import com.github.case2.service.OrderService;
+import com.github.securityfilter.util.AccessUserUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,7 +42,7 @@ public class OrderController {
      */
     @RequestMapping("/selectList")
     public CompletableFuture<List<OrderSelectListResp>> selectList(String name) {
-        return orderService.selectList(name);
+        return AccessUserUtil.runOnAccessUser(name, () -> orderService.selectList(name));
     }
 
 }

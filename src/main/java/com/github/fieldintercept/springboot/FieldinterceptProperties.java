@@ -57,7 +57,7 @@ public class FieldinterceptProperties {
      *
      * @return true=开启,false=不开启
      */
-    private boolean batchAggregation = false;
+    private BatchAggregationEnum batchAggregation = BatchAggregationEnum.disabled;
 
     /**
      * 攒多个并发请求的等待时间（毫秒）
@@ -125,11 +125,11 @@ public class FieldinterceptProperties {
         this.parallelQueryMaxThreads = parallelQueryMaxThreads;
     }
 
-    public boolean isBatchAggregation() {
+    public BatchAggregationEnum getBatchAggregation() {
         return batchAggregation;
     }
 
-    public void setBatchAggregation(boolean batchAggregation) {
+    public void setBatchAggregation(BatchAggregationEnum batchAggregation) {
         this.batchAggregation = batchAggregation;
     }
 
@@ -159,6 +159,13 @@ public class FieldinterceptProperties {
 
     public Cluster getCluster() {
         return cluster;
+    }
+
+
+    public enum BatchAggregationEnum {
+        disabled,
+        auto,
+        manual
     }
 
     public enum ClusterRpcEnum {

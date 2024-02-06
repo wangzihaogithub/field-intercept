@@ -9,9 +9,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.concurrent.ExecutionException;
 
 @Aspect
 public class AspectjReturnFieldDispatchAop extends ReturnFieldDispatchAop<JoinPoint> {
@@ -27,18 +25,14 @@ public class AspectjReturnFieldDispatchAop extends ReturnFieldDispatchAop<JoinPo
     }
 
     @AfterReturning(value = "@annotation(com.github.fieldintercept.annotation.ReturnFieldAop)", returning = "result")
-    protected void aopReturningAfter(JoinPoint joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+    protected void aopReturningAfter(JoinPoint joinPoint, Object result) {
         returningAfter(joinPoint, result);
     }
 
     @Override
-    protected boolean isNeedPending(JoinPoint joinPoint, Object returnResult) {
-        boolean needPending = super.isNeedPending(joinPoint, returnResult);
-        if (!needPending) {
-            return false;
-        }
+    protected ReturnFieldAop getAnnotationReturnFieldAop(JoinPoint joinPoint) {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
-        ReturnFieldAop returnFieldAop = findDeclaredAnnotation(method, returnFieldAopCache);
-        return returnFieldAop != null && returnFieldAop.batchAggregation();
+        return findDeclaredAnnotation(method, returnFieldAopCache);
     }
+
 }

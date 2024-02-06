@@ -2,8 +2,11 @@ package com.github.case2;
 
 // import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.case2.annotation.EnumDBFieldConsumer;
+import com.github.securityfilter.util.AccessUserUtil;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.task.TaskDecorator;
 
 import java.net.URL;
 
@@ -24,6 +27,11 @@ public class Case2ApplicationBootstrap {
 
     private static final URL CONFIG_URL = Case2ApplicationBootstrap.class.getResource(
             "/case2/application.yaml");
+
+    @Bean
+    public TaskDecorator taskDecorator(){
+        return AccessUserUtil::runnable;
+    }
 
     public static void main(String[] args) {
         System.getProperties().put("spring.config.location",CONFIG_URL.toString());

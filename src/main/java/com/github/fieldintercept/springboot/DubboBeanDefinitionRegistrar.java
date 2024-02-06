@@ -270,10 +270,9 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 return serviceMap.computeIfAbsent(beanName, e -> {
                     ReturnFieldDispatchAop.SelectMethodHolder intercept = interceptMap.get(beanName);
                     if (intercept == null) {
-                        return new Service(e, null);
-                    } else {
-                        return new Service(e, intercept);
+                        intercept = interceptMap.get(ReturnFieldDispatchAop.getBeanName(beanName));
                     }
+                    return new Service(e, intercept);
                 });
             }
 
@@ -306,7 +305,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
 
             @Override
             public String toString() {
-                return "DubboProviderGenericService" + serviceMap;
+                return "DubboBeanDefinitionRegistrar$Api" + serviceMap;
             }
 
             private static class Service {
@@ -335,7 +334,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                     if (method != null) {
                         return method;
                     } else {
-                        return arg0 -> intercept.selectValueMapByKeys(arg0);
+                        return intercept::selectValueMapByKeys;
                     }
                 }
 
@@ -480,8 +479,8 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
         private static class DubboCompositeFieldIntercept<JOIN_POINT> implements CompositeFieldIntercept<Object, Object, JOIN_POINT> {
             private final String beanName;
             private final ReferenceConfig<Api> reference;
-            private final KeyNameFieldIntercept<Object, JOIN_POINT> keyNameFieldIntercept = new KeyNameFieldIntercept<>(Object.class, this::selectNameMapByKeys, 0);
-            private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<>(Object.class, Object.class, this::selectValueMapByKeys, 0);
+            private final KeyNameFieldIntercept<Object, JOIN_POINT> keyNameFieldIntercept = new KeyNameFieldIntercept<>(Object.class, this::selectNameMapByKeys);
+            private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<>(Object.class, Object.class, this::selectValueMapByKeys);
 
             private DubboCompositeFieldIntercept(String beanName, ReferenceConfig<Api> reference) {
                 this.beanName = beanName;

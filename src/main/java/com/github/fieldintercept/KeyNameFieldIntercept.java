@@ -2,13 +2,11 @@ package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.ShareThreadMap;
 import com.github.fieldintercept.util.TypeUtil;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
@@ -16,25 +14,19 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
+public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<KEY> keyClass;
-    protected final ShareThreadMap<KEY, Object> shareThreadMap;
-    protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
     protected Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys;
 
     public KeyNameFieldIntercept() {
-        this(null, null, 0);
+        this(null, null);
     }
 
-    public KeyNameFieldIntercept(int shareTimeout) {
-        this(null, null, shareTimeout);
+    public KeyNameFieldIntercept(Class<KEY> keyClass) {
+        this(keyClass, null);
     }
 
-    public KeyNameFieldIntercept(Class<KEY> keyClass, int shareTimeout) {
-        this(keyClass, null, shareTimeout);
-    }
-
-    public KeyNameFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys, int shareTimeout) {
+    public KeyNameFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys) {
         if (keyClass == null) {
             if (getClass() != KeyNameFieldIntercept.class) {
                 try {
@@ -49,7 +41,6 @@ public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatc
         }
         this.keyClass = keyClass;
         this.selectNameMapByKeys = selectNameMapByKeys;
-        this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
     public Class<KEY> getKeyClass() {
@@ -65,7 +56,7 @@ public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatc
     }
 
     @Override
-    public final void accept(JoinPoint joinPoint, List<CField> cFields) {
+    public final void accept(JOIN_POINT joinPoint, List<CField> cFields) {
         Set<KEY> keyDataList = getKeyDataByFields(cFields);
         if (keyDataList == null || keyDataList.isEmpty()) {
             return;
@@ -79,31 +70,11 @@ public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatc
         setProperty(cFields, nameMap);
     }
 
-    @Override
-    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        threadMap.computeIfAbsent(id(result), e -> new ArrayList<>())
-                .add(Thread.currentThread());
-    }
-
-    @Override
-    public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        List<Thread> threadList = threadMap.remove(id(result));
-        if (threadList == null) {
-            return;
-        }
-        for (Thread thread : threadList) {
-            shareThreadMap.remove(thread);
-        }
-    }
-
-    private int id(Object result) {
-        return System.identityHashCode(result);
-    }
-
     public Map<KEY, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<KEY> keys) {
         Map<KEY, Object> valueMap = new LinkedHashMap<>();
+        Map<KEY, Object> currentLocalCache = ReturnFieldDispatchAop.getCurrentLocalCache(cFields, this);
         for (KEY key : keys) {
-            Object value = shareThreadMap.get(key);
+            Object value = currentLocalCache.get(key);
             if (value != null) {
                 valueMap.put(key, value);
             }
@@ -122,7 +93,7 @@ public class KeyNameFieldIntercept<KEY, JoinPoint> implements ReturnFieldDispatc
         valueMap.putAll(loadValueMap);
 
         // 放入缓存
-        shareThreadMap.putAll((Map<KEY, Object>) loadValueMap);
+        currentLocalCache.putAll(loadValueMap);
         return valueMap;
     }
 

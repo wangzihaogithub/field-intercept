@@ -5,8 +5,10 @@ import org.springframework.core.env.*;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 public class SpringUtil {
+    private static final Pattern DOT_PATTERN = Pattern.compile("[.]");
 
     public static String resolvePlaceholders(Collection<String> placeholders, Object configurableEnvironment, Object metadata) {
         if (placeholders == null || placeholders.isEmpty() || metadata == null) {
@@ -17,7 +19,7 @@ public class SpringUtil {
         PropertySourcesPropertyResolver resolver = new PropertySourcesPropertyResolver(propertySources) {
             @Override
             protected String getPropertyAsRawString(String key) {
-                String[] keys = key.split("[.]");
+                String[] keys = DOT_PATTERN.split(key);
                 if (keys.length == 1) {
                     return getProperty(trim(key), String.class, true);
                 } else {

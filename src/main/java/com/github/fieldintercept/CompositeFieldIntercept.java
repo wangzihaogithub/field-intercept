@@ -2,6 +2,7 @@ package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.TypeUtil;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -35,27 +36,45 @@ import java.util.List;
  *
  * @author acer01
  */
-public interface CompositeFieldIntercept<KEY, VALUE, JoinPoint> extends ReturnFieldDispatchAop.FieldIntercept<JoinPoint>, ReturnFieldDispatchAop.SelectMethodHolder {
-    KeyNameFieldIntercept<KEY, JoinPoint> keyNameFieldIntercept();
+public interface CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> extends ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
+    KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept();
 
-    KeyValueFieldIntercept<KEY, VALUE, JoinPoint> keyValueFieldIntercept();
+    KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> keyValueFieldIntercept();
 
     @Override
-    default void accept(JoinPoint joinPoint, List<CField> fieldList) {
+    default void accept(JOIN_POINT joinPoint, List<CField> fieldList) {
         ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
         List<CField> keyNameFieldList = split.getKeyNameFieldList();
         List<CField> keyValueFieldList = split.getKeyValueFieldList();
 
-        if (keyNameFieldList != null) {
-            keyNameFieldIntercept().accept(joinPoint, keyNameFieldList);
-        }
-        if (keyValueFieldList != null) {
-            keyValueFieldIntercept().accept(joinPoint, keyValueFieldList);
+        ReturnFieldDispatchAop<JOIN_POINT> aop;
+        if (keyNameFieldList != null && keyValueFieldList != null && (aop = ReturnFieldDispatchAop.getAop(fieldList)) != null) {
+            List<Runnable> runnableList;
+            if (keyValueFieldList.size() > keyNameFieldList.size()) {
+                runnableList = Arrays.asList(
+                        () -> keyValueFieldIntercept().accept(joinPoint, keyValueFieldList),
+                        () -> keyNameFieldIntercept().accept(joinPoint, keyNameFieldList)
+                );
+            } else {
+                runnableList = Arrays.asList(
+                        () -> keyNameFieldIntercept().accept(joinPoint, keyNameFieldList),
+                        () -> keyValueFieldIntercept().accept(joinPoint, keyValueFieldList)
+                );
+            }
+            // await
+            aop.await(runnableList);
+        } else {
+            if (keyNameFieldList != null) {
+                keyNameFieldIntercept().accept(joinPoint, keyNameFieldList);
+            }
+            if (keyValueFieldList != null) {
+                keyValueFieldIntercept().accept(joinPoint, keyValueFieldList);
+            }
         }
     }
 
     @Override
-    default void begin(JoinPoint joinPoint, List<CField> fieldList, Object result) {
+    default void begin(JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
         ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
         List<CField> keyNameFieldList = split.getKeyNameFieldList();
         List<CField> keyValueFieldList = split.getKeyValueFieldList();
@@ -69,35 +88,35 @@ public interface CompositeFieldIntercept<KEY, VALUE, JoinPoint> extends ReturnFi
     }
 
     @Override
-    default void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+    default void nextBegin(int depth, JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
         ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
         List<CField> keyNameFieldList = split.getKeyNameFieldList();
         List<CField> keyValueFieldList = split.getKeyValueFieldList();
 
         if (keyNameFieldList != null) {
-            keyNameFieldIntercept().stepBegin(step, joinPoint, keyNameFieldList, result);
+            keyNameFieldIntercept().nextBegin(depth, joinPoint, keyNameFieldList, result);
         }
         if (keyValueFieldList != null) {
-            keyValueFieldIntercept().stepBegin(step, joinPoint, keyValueFieldList, result);
+            keyValueFieldIntercept().nextBegin(depth, joinPoint, keyValueFieldList, result);
         }
     }
 
     @Override
-    default void stepEnd(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
+    default void nextEnd(int depth, JOIN_POINT joinPoint, List<CField> fieldList, Object result) {
         ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
         List<CField> keyNameFieldList = split.getKeyNameFieldList();
         List<CField> keyValueFieldList = split.getKeyValueFieldList();
 
         if (keyNameFieldList != null) {
-            keyNameFieldIntercept().stepEnd(step, joinPoint, keyNameFieldList, result);
+            keyNameFieldIntercept().nextEnd(depth, joinPoint, keyNameFieldList, result);
         }
         if (keyValueFieldList != null) {
-            keyValueFieldIntercept().stepEnd(step, joinPoint, keyValueFieldList, result);
+            keyValueFieldIntercept().nextEnd(depth, joinPoint, keyValueFieldList, result);
         }
     }
 
     @Override
-    default void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
+    default void end(JOIN_POINT joinPoint, List<CField> allFieldList, Object result) {
         ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(allFieldList);
         List<CField> keyNameFieldList = split.getKeyNameFieldList();
         List<CField> keyValueFieldList = split.getKeyValueFieldList();

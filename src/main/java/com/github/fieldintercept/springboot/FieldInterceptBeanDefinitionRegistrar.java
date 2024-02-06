@@ -44,7 +44,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected int parallelQueryMaxThreads;
     protected long batchAggregationMilliseconds;
     protected int batchAggregationMinConcurrentCount;
-    protected boolean batchAggregation;
+    protected FieldinterceptProperties.BatchAggregationEnum batchAggregation;
     protected Class<? extends Annotation>[] myAnnotations = new Class[0];
     protected Class<? extends ReturnFieldDispatchAop> aopClass;
     protected ListableBeanFactory beanFactory;
@@ -96,7 +96,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
         initProperties();
         aop.setConsumerFactory(consumerFactory());
-        aop.setBatchAggregation(batchAggregation);
+        aop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.valueOf(batchAggregation.name()));
         aop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
         aop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
         // 注册判断是否是bean
@@ -116,6 +116,11 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
         if (aop.getSkipFieldClassPredicate() == ReturnFieldDispatchAop.DEFAULT_SKIP_FIELD_CLASS_PREDICATE) {
             aop.setSkipFieldClassPredicate(this::isSkipFieldClass);
+        }
+
+        TaskDecorator decorator = taskDecorator();
+        if (decorator != null && aop.getTaskDecorate() != null) {
+            aop.setTaskDecorate(decorator::decorate);
         }
         if (aop.getTaskExecutor() == null) {
             aop.setTaskExecutor(taskExecutorFunction());
@@ -143,13 +148,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     protected Function<Runnable, Future> taskExecutorFunction() {
         if (parallelQuery) {
-            TaskDecorator decorator = taskDecorator();
             ExecutorService taskExecutor = taskExecutor();
-            if (decorator != null) {
-                return e -> taskExecutor.submit(decorator.decorate(e));
-            } else {
-                return taskExecutor::submit;
-            }
+            return taskExecutor::submit;
         } else {
             return null;
         }
@@ -246,7 +246,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         this.myAnnotations = properties.getMyAnnotations();
         this.batchAggregationMilliseconds = properties.getBatchAggregationMilliseconds();
         this.batchAggregationMinConcurrentCount = properties.getBatchAggregationMinConcurrentCount();
-        this.batchAggregation = properties.isBatchAggregation();
+        this.batchAggregation = properties.getBatchAggregation();
         this.aopClass = properties.getAopClass();
         this.enabled = properties.isEnabled();
     }

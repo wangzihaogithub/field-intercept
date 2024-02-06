@@ -17,16 +17,7 @@ public class EnumDBFieldIntercept extends KeyValueFieldIntercept<Object, Object,
     public EnumDBFieldIntercept() {
     }
 
-    public EnumDBFieldIntercept(int shareTimeout) {
-        super(shareTimeout);
-    }
-
     public EnumDBFieldIntercept(BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap) {
-        this.selectEnumGroupKeyValueMap = selectEnumGroupKeyValueMap;
-    }
-
-    public EnumDBFieldIntercept(int shareTimeout, BiFunction<Set<String>, Collection<Object>, Map<String, Map<String, Object>>> selectEnumGroupKeyValueMap) {
-        super(shareTimeout);
         this.selectEnumGroupKeyValueMap = selectEnumGroupKeyValueMap;
     }
 

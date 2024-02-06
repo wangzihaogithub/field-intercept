@@ -186,8 +186,11 @@ public class CField {
      * @return 解析后
      */
     public String resolvePlaceholders(Object configurableEnvironment, Object metadata) {
-        List<String> placeholders = getPlaceholders();
-        return resolvePlaceholders(placeholders, configurableEnvironment, metadata);
+        return resolvePlaceholders(getPlaceholders(), configurableEnvironment, metadata);
+    }
+
+    public String resolvePlaceholders(Object metadata) {
+        return resolvePlaceholders(getPlaceholders(), configurableEnvironment, metadata);
     }
 
     public List<String> getPlaceholders() {
@@ -207,14 +210,7 @@ public class CField {
      * @return 解析后
      */
     public String resolvePlaceholders(Collection<String> placeholders, Object configurableEnvironment, Object metadata) {
-        if (PlatformDependentUtil.EXIST_SPRING) {
-            if (configurableEnvironment == null) {
-                configurableEnvironment = this.configurableEnvironment;
-            }
-            return SpringUtil.resolvePlaceholders(placeholders, configurableEnvironment, metadata);
-        } else {
-            return null;
-        }
+        return PlatformDependentUtil.EXIST_SPRING ? SpringUtil.resolvePlaceholders(placeholders, configurableEnvironment, metadata) : null;
     }
 
     @Override
