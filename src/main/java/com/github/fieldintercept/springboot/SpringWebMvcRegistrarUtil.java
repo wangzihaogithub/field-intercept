@@ -50,8 +50,12 @@ public class SpringWebMvcRegistrarUtil {
             if (!Objects.equals(proxy, controller)) {
                 return false;
             }
-            if (lastProxyMethod.getParameterCount() != controllerProxyMethod.getParameterCount()) {
+            int lastProxyMethodParameterCount = lastProxyMethod.getParameterCount();
+            if (lastProxyMethodParameterCount != controllerProxyMethod.getParameterCount()) {
                 return false;
+            }
+            if (lastProxyMethodParameterCount == 0) {
+                return true;
             }
             return equals(controllerProxyMethod.getParameterTypes(), lastProxyMethod.getParameterTypes());
         }

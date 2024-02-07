@@ -32,17 +32,6 @@ public class ApacheDubboUtil {
         return equals(context.getParameterTypes(), proxyMethod.getParameterTypes());
     }
 
-    private static boolean equals(Class<?>[] dubboParameterTypes, Class<?>[] proxyParameterTypes) {
-        for (int i = 0, len = dubboParameterTypes.length; i < len; i++) {
-            Class<?> dubbo = dubboParameterTypes[i];
-            Class<?> proxy = proxyParameterTypes[i];
-            if (dubbo != proxy && !dubbo.isAssignableFrom(proxy) && !proxy.isAssignableFrom(dubbo)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     public static <JOIN_POINT> void startAsync(ReturnFieldDispatchAop.Pending<JOIN_POINT> pending) {
         if (pending.isDone()) {
             return;
@@ -61,4 +50,16 @@ public class ApacheDubboUtil {
         }
         return asyncContext;
     }
+
+    private static boolean equals(Class<?>[] dubboParameterTypes, Class<?>[] proxyParameterTypes) {
+        for (int i = 0, len = dubboParameterTypes.length; i < len; i++) {
+            Class<?> dubbo = dubboParameterTypes[i];
+            Class<?> proxy = proxyParameterTypes[i];
+            if (dubbo != proxy && !dubbo.isAssignableFrom(proxy) && !proxy.isAssignableFrom(dubbo)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 }
