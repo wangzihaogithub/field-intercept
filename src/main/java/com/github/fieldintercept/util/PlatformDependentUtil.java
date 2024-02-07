@@ -4,7 +4,9 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 
 public class PlatformDependentUtil {
+    public static final boolean EXIST_APACHE_DUBBO;
     public static final boolean EXIST_SPRING;
+    public static final boolean EXIST_SPRING_WEB;
     public static final Class<? extends Annotation> SPRING_INDEXED_ANNOTATION;
     private static final Method METHOD_GET_LOGGER;
     private static final Method METHOD_LOGGER_ERROR;
@@ -14,10 +16,30 @@ public class PlatformDependentUtil {
     private static final Method METHOD_ASPECTJ_METHOD_SIGNATURE_GET_METHOD;
 
     static {
+        boolean existApacheDubbo;
+        try {
+            Class.forName("org.apache.dubbo.rpc.AsyncContext");
+            existApacheDubbo = true;
+        } catch (Throwable e) {
+            existApacheDubbo = false;
+        }
+        EXIST_APACHE_DUBBO = existApacheDubbo;
+
+        boolean existSpringWeb;
+        try {
+            Class.forName("org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice");
+            Class.forName("org.springframework.web.bind.annotation.ControllerAdvice");
+            Class.forName("org.springframework.web.context.request.RequestContextHolder");
+            existSpringWeb = true;
+        } catch (Throwable e) {
+            existSpringWeb = false;
+        }
+        EXIST_SPRING_WEB = existSpringWeb;
+
         Class springIndexedAnnotation;
         try {
             springIndexedAnnotation = Class.forName("org.springframework.stereotype.Indexed");
-        } catch (ClassNotFoundException e) {
+        } catch (Throwable e) {
             springIndexedAnnotation = null;
         }
         SPRING_INDEXED_ANNOTATION = springIndexedAnnotation;
@@ -35,7 +57,6 @@ public class PlatformDependentUtil {
         Method loggerError;
         Method loggerTrace;
         Method loggerWarn;
-
         try {
             loggerFactoryGetLogger = Class.forName("org.slf4j.LoggerFactory").getDeclaredMethod("getLogger", Class.class);
             loggerError = Class.forName("org.slf4j.Logger").getDeclaredMethod("error", String.class, Object[].class);
@@ -115,6 +136,12 @@ public class PlatformDependentUtil {
             }
         }
         return false;
+    }
+
+    public static boolean isProxyDubboProviderMethod(Object joinPoint) {
+        return joinPoint != null
+                && PlatformDependentUtil.EXIST_APACHE_DUBBO
+                && ApacheDubboUtil.isProxyDubboProviderMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
     }
 
     public static <E extends Throwable> void sneakyThrows(Throwable t) throws E {

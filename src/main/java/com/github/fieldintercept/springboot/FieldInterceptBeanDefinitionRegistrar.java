@@ -4,11 +4,13 @@ import com.github.fieldintercept.*;
 import com.github.fieldintercept.annotation.EnumDBFieldConsumer;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
 import com.github.fieldintercept.annotation.FieldConsumer;
+import com.github.fieldintercept.util.PlatformDependentUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionBuilder;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
@@ -73,6 +75,10 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         if (beanFactory.getBeanNamesForType(ReturnFieldDispatchAop.class).length == 0) {
             registerBeanDefinitionsReturnFieldDispatchAop();
         }
+        // 5.spring-web. aop non block
+        if (PlatformDependentUtil.EXIST_SPRING_WEB) {
+            registerWebBeanDefinitions();
+        }
     }
 
     public FieldinterceptProperties getProperties() {
@@ -98,6 +104,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         aop.setBatchAggregationPollMaxSize(batchAggregation.getPollMaxSize());
         aop.setBatchAggregationPollMinSize(batchAggregation.getPollMinSize());
         aop.setBatchAggregationPendingQueueCapacity(batchAggregation.getPendingQueueCapacity());
+        aop.setBatchAggregationPendingNonBlock(batchAggregation.isPendingNonBlock());
 
         // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {
@@ -157,6 +164,17 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     protected boolean isSkipFieldClass(Class<?> type) {
         return beanFactory.getBeanNamesForType(type, true, false).length > 0;
+    }
+
+    public void registerWebBeanDefinitions() {
+        BeanDefinition[] beanDefinitions = SpringWebMvcRegistrarUtil.newBeanDefinitions(this::getProperties);
+        for (BeanDefinition beanDefinition : beanDefinitions) {
+            String beanClassName = beanDefinition.getBeanClassName();
+            if (beanClassName == null) {
+                beanClassName = beanDefinition.toString();
+            }
+            definitionRegistry.registerBeanDefinition(beanClassName, beanDefinition);
+        }
     }
 
     public void registerBeanDefinitionsReturnFieldDispatchAopBeanPostProcessor() {

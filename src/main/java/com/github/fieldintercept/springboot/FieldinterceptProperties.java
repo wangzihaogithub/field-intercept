@@ -188,6 +188,10 @@ public class FieldinterceptProperties {
          */
         private int thresholdMinConcurrentCount = 1;
         private int pendingQueueCapacity = 10000;
+        /**
+         * 是否使用非阻塞（dubbo转异步，spring-web转异步）
+         */
+        private boolean pendingNonBlock = true;
 
         public BatchAggregationEnum getEnabled() {
             return enabled;
@@ -219,6 +223,14 @@ public class FieldinterceptProperties {
 
         public void setPollMaxSize(int pollMaxSize) {
             this.pollMaxSize = pollMaxSize;
+        }
+
+        public boolean isPendingNonBlock() {
+            return pendingNonBlock;
+        }
+
+        public void setPendingNonBlock(boolean pendingNonBlock) {
+            this.pendingNonBlock = pendingNonBlock;
         }
 
         public int getThresholdMinConcurrentCount() {

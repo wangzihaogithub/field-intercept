@@ -99,6 +99,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     private int batchAggregationPollMinSize = 1;
     private int batchAggregationPollMaxSize = 1000;
     private int batchAggregationPendingQueueCapacity = 10000;
+    private boolean batchAggregationPendingNonBlock = false;
+
     private BiPredicate<JOIN_POINT, Object> enabled = null;
 
     public ReturnFieldDispatchAop() {
@@ -326,20 +328,28 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException {
-        pending.get();
+        if (batchAggregationPendingNonBlock) {
+            if (PlatformDependentUtil.isProxyDubboProviderMethod(joinPoint)) {
+                ApacheDubboUtil.startAsync(pending);
+            }
+            if (PlatformDependentUtil.EXIST_SPRING_WEB) {
+                SpringWebUtil.setPendingRequestAttribute(pending);
+            }
+        } else {
+            pending.get();
+        }
     }
 
     protected void returnPendingAsync(JOIN_POINT joinPoint, FieldCompletableFuture<Object> result, Pending<JOIN_POINT> pending) {
 
     }
 
-    protected void returnRunAsync(JOIN_POINT joinPoint, FieldCompletableFuture<Object> result, GroupCollect<JOIN_POINT> groupCollectMap) {
-        submit(() -> autowired(groupCollectMap, taskExecutor, taskDecorate), taskExecutor, taskDecorate)
-                .whenComplete(result.thenComplete());
-    }
-
     protected void returnRunSync(JOIN_POINT joinPoint, Object result, GroupCollect<JOIN_POINT> groupCollectMap) {
         autowired(groupCollectMap, taskExecutor, taskDecorate);
+    }
+
+    protected void returnRunAsync(JOIN_POINT joinPoint, FieldCompletableFuture<Object> result, GroupCollect<JOIN_POINT> groupCollectMap) {
+        submit(() -> autowired(groupCollectMap, taskExecutor, taskDecorate), taskExecutor, taskDecorate).whenComplete(result.thenComplete());
     }
 
     protected boolean isNeedPending(JOIN_POINT joinPoint, Object returnResult) {
@@ -366,7 +376,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         Method method = PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint);
         return method != null ? findDeclaredAnnotation(method, returnFieldAopCache) : null;
     }
-
 
     protected Pending<JOIN_POINT> addPendingList(GroupCollect<JOIN_POINT> groupCollectMap) {
         startPendingSignalThreadIfNeed();
@@ -839,6 +848,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     public void setBatchAggregationPollMaxSize(int batchAggregationPollMaxSize) {
         this.batchAggregationPollMaxSize = batchAggregationPollMaxSize;
+    }
+
+    public boolean isBatchAggregationPendingNonBlock() {
+        return batchAggregationPendingNonBlock;
+    }
+
+    public void setBatchAggregationPendingNonBlock(boolean batchAggregationPendingNonBlock) {
+        this.batchAggregationPendingNonBlock = batchAggregationPendingNonBlock;
     }
 
     public boolean existPending() {

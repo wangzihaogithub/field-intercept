@@ -4,13 +4,29 @@ import com.github.fieldintercept.entity.Const;
 import com.github.fieldintercept.entity.Department;
 import com.github.securityfilter.util.AccessUserUtil;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 
 public class MainTest {
     private transient Integer f = 1;
 
     public static void main(String[] args) {
+        CompletableFuture f = new CompletableFuture();
+        f.whenComplete(new BiConsumer() {
+            @Override
+            public void accept(Object o, Object o2) {
+                System.out.println("o = " + o);
+            }
+        });
+        f.whenComplete(new BiConsumer() {
+            @Override
+            public void accept(Object o, Object o2) {
+                System.out.println("o = " + o);
+            }
+        });
+        f.complete(1);
         ExecutorService executorService = Executors.newFixedThreadPool(10);
 
         ReturnFieldDispatchAop<?> dispatchAop = ReturnFieldDispatchAop.newInstance(Const.BEAN_FACTORY);
