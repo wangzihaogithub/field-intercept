@@ -37,20 +37,16 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     public static final String BEAN_NAME_USED_KEY_INTERCEPT = FieldConsumer.NAME_USED_KEY;
     public static final String BEAN_NAME_ENUM_FIELD_INTERCEPT = EnumFieldConsumer.NAME;
     public static final String BEAN_NAME_ENUM_DB_FIELD_INTERCEPT = EnumDBFieldConsumer.NAME;
-
+    private final AtomicBoolean initPropertiesFlag = new AtomicBoolean();
     protected boolean enabled = true;
     protected String[] beanBasePackages = {};
-    protected boolean parallelQuery;
-    protected int parallelQueryMaxThreads;
-    protected long batchAggregationMilliseconds;
-    protected int batchAggregationMinConcurrentCount;
-    protected FieldinterceptProperties.BatchAggregationEnum batchAggregation;
+    protected FieldinterceptProperties.Thread thread;
+    protected FieldinterceptProperties.BatchAggregation batchAggregation;
     protected Class<? extends Annotation>[] myAnnotations = new Class[0];
     protected Class<? extends ReturnFieldDispatchAop> aopClass;
     protected ListableBeanFactory beanFactory;
     protected Environment environment;
     protected BeanDefinitionRegistry definitionRegistry;
-    private final AtomicBoolean initPropertiesFlag = new AtomicBoolean();
     private Supplier<FieldinterceptProperties> propertiesSupplier;
 
     @Override
@@ -96,9 +92,13 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
         initProperties();
         aop.setConsumerFactory(consumerFactory());
-        aop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.valueOf(batchAggregation.name()));
-        aop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
-        aop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
+        aop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.valueOf(batchAggregation.getEnabled().name()));
+        aop.setBatchAggregationPollMilliseconds(batchAggregation.getPollMilliseconds());
+        aop.setBatchAggregationThresholdMinConcurrentCount(batchAggregation.getThresholdMinConcurrentCount());
+        aop.setBatchAggregationPollMaxSize(batchAggregation.getPollMaxSize());
+        aop.setBatchAggregationPollMinSize(batchAggregation.getPollMinSize());
+        aop.setBatchAggregationPendingQueueCapacity(batchAggregation.getPendingQueueCapacity());
+
         // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {
             aop.addBeanPackagePaths(beanBasePackage);
@@ -119,7 +119,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
 
         TaskDecorator decorator = taskDecorator();
-        if (decorator != null && aop.getTaskDecorate() != null) {
+        if (decorator != null && aop.getTaskDecorate() == null) {
             aop.setTaskDecorate(decorator::decorate);
         }
         if (aop.getTaskExecutor() == null) {
@@ -147,8 +147,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     protected Function<Runnable, Future> taskExecutorFunction() {
-        if (parallelQuery) {
-            ExecutorService taskExecutor = taskExecutor();
+        if (thread.isEnabled()) {
+            ExecutorService taskExecutor = taskExecutor(thread);
             return taskExecutor::submit;
         } else {
             return null;
@@ -204,18 +204,19 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    protected ExecutorService taskExecutor() {
-        return new ThreadPoolExecutor(0, parallelQueryMaxThreads,
-                60L, TimeUnit.SECONDS,
+    protected ExecutorService taskExecutor(FieldinterceptProperties.Thread config) {
+        return new ThreadPoolExecutor(config.getCorePoolSize(), config.getMaxThreads(),
+                config.getKeepAliveTimeSeconds(), TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 new ThreadFactory() {
                     private final ThreadGroup group = Thread.currentThread().getThreadGroup();
                     private final AtomicInteger threadNumber = new AtomicInteger(1);
+                    private final String prefix = config.getPrefix();
 
                     @Override
                     public Thread newThread(Runnable r) {
                         Thread thread = new Thread(group, r,
-                                "FieldIntercept-" + threadNumber.getAndIncrement());
+                                prefix + threadNumber.getAndIncrement());
                         thread.setDaemon(true);
                         return thread;
                     }
@@ -240,13 +241,10 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     public void setMetadata(FieldinterceptProperties properties) {
-        this.beanBasePackages = properties.getBeanBasePackages();
-        this.parallelQuery = properties.isParallelQuery();
-        this.parallelQueryMaxThreads = properties.getParallelQueryMaxThreads();
-        this.myAnnotations = properties.getMyAnnotations();
-        this.batchAggregationMilliseconds = properties.getBatchAggregationMilliseconds();
-        this.batchAggregationMinConcurrentCount = properties.getBatchAggregationMinConcurrentCount();
+        this.thread = properties.getThread();
         this.batchAggregation = properties.getBatchAggregation();
+        this.beanBasePackages = properties.getBeanBasePackages();
+        this.myAnnotations = properties.getMyAnnotations();
         this.aopClass = properties.getAopClass();
         this.enabled = properties.isEnabled();
     }

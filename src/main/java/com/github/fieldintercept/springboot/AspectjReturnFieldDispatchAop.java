@@ -1,15 +1,15 @@
 package com.github.fieldintercept.springboot;
 
 import com.github.fieldintercept.ReturnFieldDispatchAop;
-import com.github.fieldintercept.annotation.ReturnFieldAop;
+import com.github.fieldintercept.util.PlatformDependentUtil;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
-import org.aspectj.lang.reflect.MethodSignature;
 
 import java.lang.reflect.Method;
+import java.util.concurrent.ExecutionException;
 
 @Aspect
 public class AspectjReturnFieldDispatchAop extends ReturnFieldDispatchAop<JoinPoint> {
@@ -30,9 +30,14 @@ public class AspectjReturnFieldDispatchAop extends ReturnFieldDispatchAop<JoinPo
     }
 
     @Override
-    protected ReturnFieldAop getAnnotationReturnFieldAop(JoinPoint joinPoint) {
-        Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
-        return findDeclaredAnnotation(method, returnFieldAopCache);
+    protected void returnPendingSync(JoinPoint joinPoint, Object result, Pending<JoinPoint> pending) throws ExecutionException, InterruptedException {
+        Method method = PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint);
+        if (method != null) {
+            String methodName = method.getName();
+            int parameterCount = method.getParameterCount();
+
+        }
+        pending.get();
     }
 
 }

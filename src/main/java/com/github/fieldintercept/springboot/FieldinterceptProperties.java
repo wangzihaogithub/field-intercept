@@ -11,67 +11,56 @@ import java.util.Map;
 public class FieldinterceptProperties {
     public static final String PREFIX = "spring.fieldintercept";
     private static final long serialVersionUID = 1L;
-
-    /**
-     * 是否开启字段拦截
-     */
-    private boolean enabled = true;
     /**
      * 集群配置
      */
     @NestedConfigurationProperty
     private final Cluster cluster = new Cluster();
-
+    /**
+     * 聚合策略
+     */
+    @NestedConfigurationProperty
+    private final BatchAggregation batchAggregation = new BatchAggregation();
+    /**
+     * 线程策略
+     */
+    @NestedConfigurationProperty
+    private final Thread thread = new Thread();
+    /**
+     * 是否开启字段拦截
+     */
+    private boolean enabled = true;
     /**
      * 业务实体类的包路径
      * 用于快速判断是否是业务实体类 ,如果是业务实体类,则会深度遍历访问内部字段
-     *
-     * @return 包路径. 例如 {"com.ig", "com.xx"}
+     * 包路径. 例如 {"com.ig", "com.xx"}
      */
     private String[] beanBasePackages = {};
-
     /**
      * 切面对象
-     *
-     * @return
      */
     private Class<? extends ReturnFieldDispatchAop> aopClass = AspectjReturnFieldDispatchAop.class;
-
     /**
-     * 是否并行查询
-     *
-     * @return true=用线程池并行,false=在调用者线程上串行
+     * 注册自定义注解
+     * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
+     * 2. 自定义注解可以覆盖框架注解
+     * 前提
+     * 1. spring容器里必须有和注解短类名相同的bean。例： com.ig.MyAnnotation的名字是MyAnnotation。 {@link ReturnFieldDispatchAop#getMyAnnotationConsumerName(Class)}
+     * 2. bean需要实现接口处理自定义逻辑 {@link ReturnFieldDispatchAop.FieldIntercept}
      */
-    private boolean parallelQuery = true;
+    private Class<? extends Annotation>[] myAnnotations = new Class[0];
 
-    /**
-     * 并行查询线程数量
-     * 如果并发超过线程数量，超出的部分会在调用者线程上执行
-     *
-     * @return 线程数量
-     */
-    private int parallelQueryMaxThreads = 100;
+    public Cluster getCluster() {
+        return cluster;
+    }
 
-    /**
-     * 是否开启将N毫秒内的多个并发请求攒到一起处理
-     *
-     * @return true=开启,false=不开启
-     */
-    private BatchAggregationEnum batchAggregation = BatchAggregationEnum.disabled;
+    public BatchAggregation getBatchAggregation() {
+        return batchAggregation;
+    }
 
-    /**
-     * 攒多个并发请求的等待时间（毫秒）
-     *
-     * @return 将N毫秒内的所有线程聚合到一起查询
-     */
-    private long batchAggregationMilliseconds = 10L;
-
-    /**
-     * 超过这个并发请求的数量后，才开始攒批。 否则立即执行
-     *
-     * @return 攒批的并发量最低要求
-     */
-    private int batchAggregationMinConcurrentCount = 1;
+    public Thread getThread() {
+        return thread;
+    }
 
     public boolean isEnabled() {
         return enabled;
@@ -80,18 +69,6 @@ public class FieldinterceptProperties {
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
-
-    /**
-     * 注册自定义注解
-     * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
-     * 2. 自定义注解可以覆盖框架注解
-     * 前提
-     * 1. spring容器里必须有和注解短类名相同的bean。例： com.ig.MyAnnotation的名字是MyAnnotation。 {@link ReturnFieldDispatchAop#getMyAnnotationConsumerName(Class)}
-     * 2. bean需要实现接口处理自定义逻辑 {@link ReturnFieldDispatchAop.FieldIntercept}
-     *
-     * @return 需要添加的自定义注解
-     */
-    private Class<? extends Annotation>[] myAnnotations = new Class[0];
 
     public String[] getBeanBasePackages() {
         return beanBasePackages;
@@ -109,46 +86,6 @@ public class FieldinterceptProperties {
         this.aopClass = aopClass;
     }
 
-    public boolean isParallelQuery() {
-        return parallelQuery;
-    }
-
-    public void setParallelQuery(boolean parallelQuery) {
-        this.parallelQuery = parallelQuery;
-    }
-
-    public int getParallelQueryMaxThreads() {
-        return parallelQueryMaxThreads;
-    }
-
-    public void setParallelQueryMaxThreads(int parallelQueryMaxThreads) {
-        this.parallelQueryMaxThreads = parallelQueryMaxThreads;
-    }
-
-    public BatchAggregationEnum getBatchAggregation() {
-        return batchAggregation;
-    }
-
-    public void setBatchAggregation(BatchAggregationEnum batchAggregation) {
-        this.batchAggregation = batchAggregation;
-    }
-
-    public long getBatchAggregationMilliseconds() {
-        return batchAggregationMilliseconds;
-    }
-
-    public void setBatchAggregationMilliseconds(long batchAggregationMilliseconds) {
-        this.batchAggregationMilliseconds = batchAggregationMilliseconds;
-    }
-
-    public int getBatchAggregationMinConcurrentCount() {
-        return batchAggregationMinConcurrentCount;
-    }
-
-    public void setBatchAggregationMinConcurrentCount(int batchAggregationMinConcurrentCount) {
-        this.batchAggregationMinConcurrentCount = batchAggregationMinConcurrentCount;
-    }
-
     public Class<? extends Annotation>[] getMyAnnotations() {
         return myAnnotations;
     }
@@ -156,11 +93,6 @@ public class FieldinterceptProperties {
     public void setMyAnnotations(Class<? extends Annotation>[] myAnnotations) {
         this.myAnnotations = myAnnotations;
     }
-
-    public Cluster getCluster() {
-        return cluster;
-    }
-
 
     public enum BatchAggregationEnum {
         disabled,
@@ -178,7 +110,140 @@ public class FieldinterceptProperties {
         all
     }
 
+    public static class Thread {
+        /**
+         * 是否并行查询 true=用线程池并行,false=在调用者线程上串行
+         */
+        private boolean enabled = true;
+        /**
+         * 线程名称前缀
+         */
+        private String prefix = "FieldIntercept-";
+        private int corePoolSize = 0;
+        /**
+         * 线程数量
+         * 如果并发超过线程数量，超出的部分会在调用者线程上执行
+         */
+        private int maxThreads = 100;
+
+        private long keepAliveTimeSeconds = 60L;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getCorePoolSize() {
+            return corePoolSize;
+        }
+
+        public void setCorePoolSize(int corePoolSize) {
+            this.corePoolSize = corePoolSize;
+        }
+
+        public String getPrefix() {
+            return prefix;
+        }
+
+        public void setPrefix(String prefix) {
+            this.prefix = prefix;
+        }
+
+        public long getKeepAliveTimeSeconds() {
+            return keepAliveTimeSeconds;
+        }
+
+        public void setKeepAliveTimeSeconds(long keepAliveTimeSeconds) {
+            this.keepAliveTimeSeconds = keepAliveTimeSeconds;
+        }
+
+        public int getMaxThreads() {
+            return maxThreads;
+        }
+
+        public void setMaxThreads(int maxThreads) {
+            this.maxThreads = maxThreads;
+        }
+    }
+
+    public static class BatchAggregation {
+        /**
+         * 聚合策略
+         * 开启将N毫秒内的多个并发请求攒到一起处理
+         */
+        private BatchAggregationEnum enabled = BatchAggregationEnum.disabled;
+
+        /**
+         * 攒多个并发请求的等待时间（毫秒） 将N毫秒内的所有线程聚合到一起查询
+         */
+        private long pollMilliseconds = 10L;
+        private int pollMinSize = 1;
+        private int pollMaxSize = 1000;
+        /**
+         * 超过这个并发请求的数量后，才开始攒批。 否则立即执行
+         * 攒批的并发量最低要求
+         */
+        private int thresholdMinConcurrentCount = 1;
+        private int pendingQueueCapacity = 10000;
+
+        public BatchAggregationEnum getEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(BatchAggregationEnum enabled) {
+            this.enabled = enabled;
+        }
+
+        public long getPollMilliseconds() {
+            return pollMilliseconds;
+        }
+
+        public void setPollMilliseconds(long pollMilliseconds) {
+            this.pollMilliseconds = pollMilliseconds;
+        }
+
+        public int getPollMinSize() {
+            return pollMinSize;
+        }
+
+        public void setPollMinSize(int pollMinSize) {
+            this.pollMinSize = pollMinSize;
+        }
+
+        public int getPollMaxSize() {
+            return pollMaxSize;
+        }
+
+        public void setPollMaxSize(int pollMaxSize) {
+            this.pollMaxSize = pollMaxSize;
+        }
+
+        public int getThresholdMinConcurrentCount() {
+            return thresholdMinConcurrentCount;
+        }
+
+        public void setThresholdMinConcurrentCount(int thresholdMinConcurrentCount) {
+            this.thresholdMinConcurrentCount = thresholdMinConcurrentCount;
+        }
+
+        public int getPendingQueueCapacity() {
+            return pendingQueueCapacity;
+        }
+
+        public void setPendingQueueCapacity(int pendingQueueCapacity) {
+            this.pendingQueueCapacity = pendingQueueCapacity;
+        }
+    }
+
     public static class Cluster {
+        /**
+         * Dubbo配置
+         */
+        @NestedConfigurationProperty
+        private final Dubbo dubbo = new Dubbo();
         /**
          * 是否开启集群模式
          */
@@ -195,18 +260,12 @@ public class FieldinterceptProperties {
          */
         private ClusterRoleEnum role = ClusterRoleEnum.all;
 
-        /**
-         * Dubbo配置
-         */
-        @NestedConfigurationProperty
-        private final Dubbo dubbo = new Dubbo();
+        public boolean isEnabled() {
+            return enabled;
+        }
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
-        }
-
-        public boolean isEnabled() {
-            return enabled;
         }
 
         public Dubbo getDubbo() {

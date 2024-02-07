@@ -13,6 +13,14 @@ public class FieldCompletableFuture<T> extends CompletableFuture<T> {
         this.value = value;
     }
 
+    public static Throwable unwrap(Throwable throwable) {
+        if (throwable instanceof ExecutionException || throwable instanceof InvocationTargetException || throwable instanceof UndeclaredThrowableException) {
+            return throwable.getCause();
+        } else {
+            return throwable;
+        }
+    }
+
     public T value() {
         return value;
     }
@@ -29,13 +37,5 @@ public class FieldCompletableFuture<T> extends CompletableFuture<T> {
                 complete();
             }
         };
-    }
-
-    public static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof ExecutionException || throwable instanceof InvocationTargetException || throwable instanceof UndeclaredThrowableException) {
-            return throwable.getCause();
-        } else {
-            return throwable;
-        }
     }
 }

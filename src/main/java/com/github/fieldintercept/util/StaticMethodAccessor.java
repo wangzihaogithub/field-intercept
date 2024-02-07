@@ -13,12 +13,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 public class StaticMethodAccessor implements Function<String, Object> {
+    private static final Map<String, StaticMethodAccessor> CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Map<Member, String[]>> PARAMETER_NAMES_CACHE = new ConcurrentHashMap<>();
     private final String classMethodName;
     private final Method method;
     private final Class<?>[] parameterTypes;
     private final String[] parameterNames;
-    private static final Map<String, StaticMethodAccessor> CACHE = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, Map<Member, String[]>> PARAMETER_NAMES_CACHE = new ConcurrentHashMap<>();
 
     public StaticMethodAccessor(String classMethodName) {
         Method method = null;

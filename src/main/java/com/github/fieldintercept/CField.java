@@ -18,10 +18,9 @@ public class CField {
     private final BeanMap beanHandler;
     private final Field field;
     private final Annotation annotation;
-    /**
-     * 这个字段被这个消费者消费
-     */
     private final String consumerName;
+    private final Class genericType;
+    private final Object configurableEnvironment;
     /**
      * key的数据
      */
@@ -36,9 +35,7 @@ public class CField {
      */
     private Boolean existPlaceholder;
     private List<String> placeholders;
-    private Class genericType;
     private Object value;
-    private Object configurableEnvironment;
 
     public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation, Object configurableEnvironment) {
         this.consumerName = consumerName;

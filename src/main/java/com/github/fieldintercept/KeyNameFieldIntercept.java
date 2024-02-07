@@ -47,12 +47,12 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         return keyClass;
     }
 
-    public void setSelectNameMapByKeys(Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys) {
-        this.selectNameMapByKeys = selectNameMapByKeys;
-    }
-
     public Function<Collection<KEY>, Map<KEY, ?>> getSelectNameMapByKeys() {
         return selectNameMapByKeys;
+    }
+
+    public void setSelectNameMapByKeys(Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys) {
+        this.selectNameMapByKeys = selectNameMapByKeys;
     }
 
     @Override
@@ -108,8 +108,7 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
     }
 
     public Map<KEY, String> selectNameMapByKeys(List<CField> cFields, Collection<KEY> keys) {
-        Map<KEY, String> nameMap = selectNameMapByKeys(keys);
-        return nameMap;
+        return selectNameMapByKeys(keys);
     }
 
     public Map<KEY, ?> selectObjectMapByKeys(List<CField> cFields, Collection<KEY> keys) {

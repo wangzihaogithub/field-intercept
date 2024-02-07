@@ -15,8 +15,8 @@ public class MainTest {
 
         ReturnFieldDispatchAop<?> dispatchAop = ReturnFieldDispatchAop.newInstance(Const.BEAN_FACTORY);
         dispatchAop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.auto);
-        dispatchAop.setBatchAggregationMilliseconds(3000);
-        dispatchAop.setBatchAggregationMinConcurrentCount(1);
+        dispatchAop.setBatchAggregationPollMilliseconds(3000);
+        dispatchAop.setBatchAggregationPollMaxSize(5);
         dispatchAop.setTaskExecutor(executorService::submit);
         dispatchAop.setTaskDecorate(AccessUserUtil::runnable);
         for (int i = 0; i < 5; i++) {
@@ -30,6 +30,11 @@ public class MainTest {
                         Department department = new Department();
                         dispatchAop.autowiredFieldValue(department);
                         System.out.println(Thread.currentThread() + "department = " + department);
+//                        try {
+//                            Thread.sleep(1000);
+//                        } catch (InterruptedException e) {
+//                            e.printStackTrace();
+//                        }
                     }
                 }
             }.start();
