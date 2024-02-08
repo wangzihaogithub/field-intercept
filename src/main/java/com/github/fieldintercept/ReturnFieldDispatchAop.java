@@ -426,13 +426,13 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             if (partition == null || partition.isEmpty()) {
                 future.complete(null);
             } else {
+                ThreadSnapshotRunnable snapshotRunnable = new ThreadSnapshotRunnable(taskDecorate);
                 submit(partition, taskExecutor, taskDecorate).whenComplete(((unused, throwable) -> {
                     try {
                         if (throwable != null) {
                             future.completeExceptionally(throwable);
                         } else if (groupCollectMap.isExistAsync()) {
                             Collection<CompletableFuture<Object>> asyncList = groupCollectMap.getAsyncList();
-                            ThreadSnapshotRunnable snapshotRunnable = new ThreadSnapshotRunnable(taskDecorate);
                             CompletableFuture.allOf(asyncList.toArray(new CompletableFuture[asyncList.size()])).whenComplete(((unused1, asyncThrowable) -> {
                                 snapshotRunnable.replay(() -> {
                                     if (asyncThrowable != null) {
