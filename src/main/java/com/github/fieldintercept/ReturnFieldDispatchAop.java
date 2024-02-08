@@ -105,7 +105,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     /**
      * 自动注入同步调用时的超时时间
      */
-    private int blockGetterTimeoutMilliseconds = 10_000;
+    private int blockGetterTimeoutMilliseconds = 30_000;
     /**
      * 控制提交AutowiredRunnable的数量，如果超过这个数量，就会阻塞
      */
@@ -292,6 +292,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return true;
         } else {
             return false;
+        }
+    }
+
+    public static ThreadSnapshotRunnable newThreadSnapshotRunnable(List<CField> cFieldList) {
+        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
+            return new ThreadSnapshotRunnable(((SplitCFieldList) cFieldList).groupCollect.aop.taskDecorate);
+        } else {
+            return new ThreadSnapshotRunnable(null);
         }
     }
 
@@ -543,11 +551,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException, TimeoutException {
         if (batchAggregationPendingNonBlock) {
+            boolean startAsync = false;
             if (PlatformDependentUtil.isProxyDubboProviderMethod(joinPoint)) {
                 ApacheDubboUtil.startAsync(pending);
+                startAsync = true;
             }
-            if (PlatformDependentUtil.EXIST_SPRING_WEB) {
+            if (PlatformDependentUtil.isProxySpringWebProviderMethod(joinPoint)) {
                 SpringWebUtil.setPendingRequestAttribute(pending);
+                startAsync = true;
+            }
+            if (!startAsync) {
+                pending.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);
             }
         } else {
             pending.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);

@@ -24,20 +24,17 @@
             <dependency>
                 <groupId>com.github.wangzihaogithub</groupId>
                 <artifactId>field-intercept</artifactId>
-                <version>1.0.9</version>
+                <version>1.0.10</version>
             </dependency>
 
-2.  添加注解，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类
+2. 添加配置，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类
 
+        application.yaml里
 
-        @EnableFieldIntercept(beanBasePackages = "com.ig", parallelQuery = true)
-        @SpringBootApplication
-        public class IgWebHrApplication {
-            public static void main(String[] args) {
-                SpringApplication.run(IgWebHrApplication.class,args);
-            }
-        }
-        
+            spring:
+                fieldintercept:
+                    beanBasePackages: 'com.xxx'
+                
         
 3.  在方法上标记 @ReturnFieldAop注解， 
 
