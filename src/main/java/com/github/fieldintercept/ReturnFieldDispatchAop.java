@@ -127,7 +127,9 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     public ReturnFieldDispatchAop() {
         this.pendingList = new LinkedBlockingDeque<>(batchAggregationPendingQueueCapacity);
-        INSTANCE = this;
+        if (INSTANCE == null || !(this instanceof SimpleReturnFieldDispatchAop)) {
+            INSTANCE = this;
+        }
     }
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
@@ -1126,9 +1128,9 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final BiConsumer<JOIN_POINT, List<CField>> consumer;
         private final Runnable autowiredAfter;
 
-        public AutowiredRunnable(ReturnFieldDispatchAop<JOIN_POINT> aop, JOIN_POINT joinPoint, Object result,
-                                 int depth, List<CField> fieldList,
-                                 String consumerName, BiConsumer<JOIN_POINT, List<CField>> consumer, Runnable autowiredAfter) throws InterruptedException {
+        private AutowiredRunnable(ReturnFieldDispatchAop<JOIN_POINT> aop, JOIN_POINT joinPoint, Object result,
+                                  int depth, List<CField> fieldList,
+                                  String consumerName, BiConsumer<JOIN_POINT, List<CField>> consumer, Runnable autowiredAfter) throws InterruptedException {
             this.aop = aop;
             this.joinPoint = joinPoint;
             this.result = result;
@@ -1234,7 +1236,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final Pending<JOIN_POINT>[] pendingList;
         private final List<PendingKey<JOIN_POINT>> pendingKeyList;
 
-        public MergeGroupCollect(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        private MergeGroupCollect(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             super(null, Stream.of(pendingList).map(e -> e.groupCollectMap.result).toArray(), aop);
             this.pendingList = pendingList;
             this.pendingKeyList = null;
@@ -1252,7 +1254,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
-        public MergeGroupCollect(List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        private MergeGroupCollect(List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             super(null, pendingKeyList.stream().map(e -> e.pending).distinct().map(e -> e.groupCollectMap.result).toArray(), aop);
             this.pendingList = null;
             this.pendingKeyList = pendingKeyList;
@@ -1597,12 +1599,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static class AllMergePendingRunnable<JOIN_POINT> implements Runnable {
+    private static class AllMergePendingRunnable<JOIN_POINT> implements Runnable {
         private final Pending<JOIN_POINT>[] pendingList;
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
         private final MergeGroupCollect<JOIN_POINT> groupCollectMap;
 
-        public AllMergePendingRunnable(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        private AllMergePendingRunnable(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.pendingList = pendingList;
             this.aop = aop;
             this.groupCollectMap = new MergeGroupCollect<>(pendingList, aop);
@@ -1635,13 +1637,13 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static class PartMergePendingRunnable<JOIN_POINT> implements Runnable {
+    private static class PartMergePendingRunnable<JOIN_POINT> implements Runnable {
         private final Object groupKey;
         private final List<PendingKey<JOIN_POINT>> pendingKeyList;
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
         private final MergeGroupCollect<JOIN_POINT> groupCollectMap;
 
-        public PartMergePendingRunnable(Object groupKey, List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        private PartMergePendingRunnable(Object groupKey, List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.pendingKeyList = pendingKeyList;
             this.groupKey = groupKey;
             this.aop = aop;
@@ -1756,7 +1758,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static class PendingSignalThread<JOIN_POINT> extends Thread {
+    private static class PendingSignalThread<JOIN_POINT> extends Thread {
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
         private final ArrayList<Pending<JOIN_POINT>> pollList;
         // 当前信号数量
@@ -1766,7 +1768,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final Lock lock = new ReentrantLock();
         private final Condition condition = lock.newCondition();
 
-        public PendingSignalThread(ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        private PendingSignalThread(ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.aop = aop;
             this.pollList = new ArrayList<>(aop.getBatchAggregationPollMaxSize());
             setName("ReturnFieldDispatchAop-PendingSignal" + getId());
@@ -1865,10 +1867,15 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private transient List<CField> keyNameFieldList;
         private transient List<CField> keyValueFieldList;
 
-        public SplitCFieldList(List<CField> fieldList) {
+        private SplitCFieldList(List<CField> fieldList) {
             super(fieldList);
-            this.groupCollect = null;
-            this.beanName = null;
+            if (fieldList instanceof SplitCFieldList) {
+                this.groupCollect = ((SplitCFieldList) fieldList).groupCollect;
+                this.beanName = ((SplitCFieldList) fieldList).beanName;
+            } else {
+                this.groupCollect = null;
+                this.beanName = null;
+            }
         }
 
         public SplitCFieldList() {
@@ -1881,10 +1888,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             this.beanName = beanName;
         }
 
-        public SplitCFieldList(GroupCollect<?> groupCollect, int size) {
+        public SplitCFieldList(SplitCFieldList parent, int size) {
             super(size);
-            this.groupCollect = groupCollect;
-            this.beanName = null;
+            this.groupCollect = parent.groupCollect;
+            this.beanName = parent.beanName;
         }
 
         private static boolean isString(CField field) {
@@ -1946,12 +1953,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 for (CField e : this) {
                     if (e.existPlaceholder() || !isString(e)) {
                         if (keyValueFields == null) {
-                            keyValueFields = new SplitCFieldList(groupCollect, Math.min(size(), 16));
+                            keyValueFields = new SplitCFieldList(this, Math.min(size(), 16));
                         }
                         keyValueFields.add(e);
                     } else {
                         if (keyNameFields == null) {
-                            keyNameFields = new SplitCFieldList(groupCollect, Math.min(size(), 16));
+                            keyNameFields = new SplitCFieldList(this, Math.min(size(), 16));
                         }
                         keyNameFields.add(e);
                     }
