@@ -13,6 +13,10 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.FIELD})
 public @interface FieldConsumer {
+    /*
+     * 返回key名称一致
+     */
+    String NAME_USED_KEY = "UsedKeyFieldIntercept";
 
     /**
      * 类型
@@ -53,5 +57,13 @@ public @interface FieldConsumer {
      * @return 路由分类
      */
     String type() default "";
+
+    /**
+     * 使用注解继承
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ElementType.ANNOTATION_TYPE})
+    @interface Extends {
+    }
 
 }

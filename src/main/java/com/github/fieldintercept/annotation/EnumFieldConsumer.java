@@ -50,4 +50,12 @@ public @interface EnumFieldConsumer {
      */
     String joinDelimiter() default ",";
 
+    /**
+     * 使用注解继承
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target({ElementType.ANNOTATION_TYPE})
+    @interface Extends {
+    }
+
 }

@@ -1,6 +1,6 @@
 package com.github.fieldintercept;
 
-import org.springframework.core.annotation.AnnotationUtils;
+import com.github.fieldintercept.util.AnnotationUtil;
 
 import java.lang.annotation.Annotation;
 import java.util.*;
@@ -10,21 +10,14 @@ import java.util.*;
  *
  * @author hao
  */
-public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object> {
-
-    public EnumFieldIntercept() {
-    }
-
-    public EnumFieldIntercept(int shareTimeout) {
-        super(shareTimeout);
-    }
+public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object, Object> {
 
     private static String getGroup(Class<? extends java.lang.Enum> type) {
         return type.getName();
     }
 
     private static Class<? extends java.lang.Enum>[] getEnumClasses(Annotation annotation) {
-        return (Class<? extends java.lang.Enum>[]) AnnotationUtils.getValue(annotation);
+        return (Class<? extends java.lang.Enum>[]) AnnotationUtil.getValue(annotation);
     }
 
     @Override

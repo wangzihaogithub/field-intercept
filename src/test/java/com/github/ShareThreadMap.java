@@ -1,4 +1,4 @@
-package com.github.fieldintercept.util;
+package com.github;
 
 import java.util.HashMap;
 import java.util.Map;

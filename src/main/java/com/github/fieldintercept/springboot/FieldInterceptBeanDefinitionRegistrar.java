@@ -1,115 +1,222 @@
 package com.github.fieldintercept.springboot;
 
-import com.github.fieldintercept.EnumDBFieldIntercept;
-import com.github.fieldintercept.EnumFieldIntercept;
-import com.github.fieldintercept.ReturnFieldDispatchAop;
-import com.github.fieldintercept.annotation.EnableFieldIntercept;
+import com.github.fieldintercept.*;
 import com.github.fieldintercept.annotation.EnumDBFieldConsumer;
 import com.github.fieldintercept.annotation.EnumFieldConsumer;
+import com.github.fieldintercept.annotation.FieldConsumer;
+import com.github.fieldintercept.util.PlatformDependentUtil;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionBuilder;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
-import org.springframework.core.annotation.AnnotationAttributes;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.core.type.AnnotationMetadata;
 
 import java.lang.annotation.Annotation;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefinitionRegistrar, BeanFactoryAware, EnvironmentAware {
     public static final String BEAN_NAME_RETURN_FIELD_DISPATCH_AOP = "returnFieldDispatchAop";
+    public static final String BEAN_NAME_RETURN_FIELD_DISPATCH_AOP_BEAN_POST_PROCESSOR = "returnFieldDispatchAopBeanPostProcessor";
+
+    public static final String BEAN_NAME_USED_KEY_INTERCEPT = FieldConsumer.NAME_USED_KEY;
     public static final String BEAN_NAME_ENUM_FIELD_INTERCEPT = EnumFieldConsumer.NAME;
     public static final String BEAN_NAME_ENUM_DB_FIELD_INTERCEPT = EnumDBFieldConsumer.NAME;
-
-    private String[] beanBasePackages = {};
-    private boolean parallelQuery;
-    private int parallelQueryMaxThreads;
-    private long batchAggregationMilliseconds;
-    private int batchAggregationMinConcurrentCount;
-    private boolean batchAggregation;
-    private Class<? extends Annotation>[] myAnnotations = new Class[0];
-    private ListableBeanFactory beanFactory;
-    private Environment environment;
-    private BeanDefinitionRegistry definitionRegistry;
+    private final AtomicBoolean initPropertiesFlag = new AtomicBoolean();
+    protected boolean enabled = true;
+    protected String[] beanBasePackages = {};
+    protected FieldinterceptProperties.Thread thread;
+    protected FieldinterceptProperties.BatchAggregation batchAggregation;
+    protected Class<? extends Annotation>[] myAnnotations = new Class[0];
+    protected Class<? extends ReturnFieldDispatchAop> aopClass;
+    protected ListableBeanFactory beanFactory;
+    protected Environment environment;
+    protected BeanDefinitionRegistry definitionRegistry;
+    /**
+     * 如果超过这个数量，就会阻塞调用方(业务代码)继续生产自动注入任务。阻塞创建AutowiredRunnable，创建不出来就提交不到线程池里
+     */
+    private int maxRunnableConcurrentCount;
+    /**
+     * 自动注入同步调用时的超时时间
+     */
+    private int blockGetterTimeoutMilliseconds;
+    private Supplier<FieldinterceptProperties> propertiesSupplier;
 
     @Override
-    public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry definitionRegistry) {
+    public void registerBeanDefinitions(AnnotationMetadata metadata, BeanDefinitionRegistry definitionRegistry) {
         if (beanFactory == null && definitionRegistry instanceof ListableBeanFactory) {
             beanFactory = (ListableBeanFactory) definitionRegistry;
         }
         this.definitionRegistry = definitionRegistry;
         Objects.requireNonNull(beanFactory);
-        setImportMetadata(importingClassMetadata);
 
         // 1.EnumFieldIntercept.class (if not exist)
         if (!beanFactory.containsBeanDefinition(BEAN_NAME_ENUM_FIELD_INTERCEPT)) {
             registerBeanDefinitionsEnumFieldIntercept();
         }
-        // 2.ReturnFieldDispatchAop.class (if not exist)
+        // 2.ReturnKeyFieldIntercept.class (if not exist)
+        if (!beanFactory.containsBeanDefinition(BEAN_NAME_USED_KEY_INTERCEPT)) {
+            registerBeanDefinitionsReturnKeyFieldIntercept();
+        }
+        // 3.ReturnFieldDispatchAopBeanPostProcessor.class (if not exist)
+        if (beanFactory.getBeanNamesForType(ReturnFieldDispatchAopBeanPostProcessor.class).length == 0) {
+            registerBeanDefinitionsReturnFieldDispatchAopBeanPostProcessor();
+        }
+        // 4.ReturnFieldDispatchAop.class (if not exist)
         if (beanFactory.getBeanNamesForType(ReturnFieldDispatchAop.class).length == 0) {
             registerBeanDefinitionsReturnFieldDispatchAop();
         }
+        // 5.spring-web. aop non block
+        if (PlatformDependentUtil.EXIST_SPRING_WEB) {
+            registerWebBeanDefinitions();
+        }
+    }
+
+    public FieldinterceptProperties getProperties() {
+        if (propertiesSupplier == null) {
+            return null;
+        }
+        initProperties();
+        return propertiesSupplier.get();
+    }
+
+    private void initProperties() {
+        if (initPropertiesFlag.compareAndSet(false, true)) {
+            setMetadata(propertiesSupplier.get());
+        }
+    }
+
+    protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        initProperties();
+
+        aop.setConsumerFactory(consumerFactory());
+        aop.setBlockGetterTimeoutMilliseconds(blockGetterTimeoutMilliseconds);
+        aop.setMaxRunnableConcurrentCount(maxRunnableConcurrentCount);
+
+        aop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.valueOf(batchAggregation.getEnabled().name()));
+        aop.setBatchAggregationPollMilliseconds(batchAggregation.getPollMilliseconds());
+        aop.setBatchAggregationThresholdMinConcurrentCount(batchAggregation.getThresholdMinConcurrentCount());
+        aop.setBatchAggregationPollMaxSize(batchAggregation.getPollMaxSize());
+        aop.setBatchAggregationPollMinSize(batchAggregation.getPollMinSize());
+        aop.setBatchAggregationPendingQueueCapacity(batchAggregation.getPendingQueueCapacity());
+        aop.setBatchAggregationPendingNonBlock(batchAggregation.isPendingNonBlock());
+        aop.setBatchAggregationMaxSignalConcurrentCount(batchAggregation.getMaxSignalConcurrentCount());
+
+        // 注册判断是否是bean
+        for (String beanBasePackage : beanBasePackages) {
+            aop.addBeanPackagePaths(beanBasePackage);
+        }
+        // 注册自定义注解
+        for (Class<? extends Annotation> myAnnotation : myAnnotations) {
+            aop.getAnnotations().add(myAnnotation);
+        }
+        // 注册数据库枚举查询别名
+        if (registryAlias(EnumDBFieldIntercept.class, BEAN_NAME_ENUM_DB_FIELD_INTERCEPT)) {
+            aop.getAnnotations().add(EnumDBFieldConsumer.class);
+        }
+        if (aop.getConfigurableEnvironment() == null) {
+            aop.setConfigurableEnvironment(configurableEnvironment());
+        }
+        if (aop.getSkipFieldClassPredicate() == ReturnFieldDispatchAop.DEFAULT_SKIP_FIELD_CLASS_PREDICATE) {
+            aop.setSkipFieldClassPredicate(this::isSkipFieldClass);
+        }
+
+        TaskDecorator decorator = taskDecorator();
+        if (decorator != null && aop.getTaskDecorate() == null) {
+            aop.setTaskDecorate(decorator::decorate);
+        }
+        if (aop.getTaskExecutor() == null) {
+            aop.setTaskExecutor(taskExecutorFunction());
+        }
+        if (!enabled) {
+            aop.setEnabled((j, r) -> false);
+        }
+    }
+
+    protected <JOIN_POINT> Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory() {
+        return new SpringConsumerFactory<>(beanFactory);
+    }
+
+    protected ConfigurableEnvironment configurableEnvironment() {
+        if (environment instanceof ConfigurableEnvironment) {
+            return (ConfigurableEnvironment) environment;
+        } else {
+            try {
+                return beanFactory.getBean(ConfigurableEnvironment.class);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+    }
+
+    protected Function<Runnable, Future> taskExecutorFunction() {
+        if (thread.isEnabled()) {
+            ExecutorService taskExecutor = taskExecutor(thread);
+            return taskExecutor::submit;
+        } else {
+            return null;
+        }
+    }
+
+    protected boolean isSkipFieldClass(Class<?> type) {
+        return beanFactory.getBeanNamesForType(type, true, false).length > 0;
+    }
+
+    public void registerWebBeanDefinitions() {
+        BeanDefinition[] beanDefinitions = SpringWebMvcRegistrarUtil.newBeanDefinitions(this::getProperties);
+        for (BeanDefinition beanDefinition : beanDefinitions) {
+            String beanClassName = beanDefinition.getBeanClassName();
+            if (beanClassName == null) {
+                beanClassName = beanDefinition.toString();
+            }
+            definitionRegistry.registerBeanDefinition(beanClassName, beanDefinition);
+        }
+    }
+
+    public void registerBeanDefinitionsReturnFieldDispatchAopBeanPostProcessor() {
+        BeanDefinitionBuilder builder = BeanDefinitionBuilder
+                .genericBeanDefinition(ReturnFieldDispatchAopBeanPostProcessor.class, () -> new ReturnFieldDispatchAopBeanPostProcessor(this::config));
+        definitionRegistry.registerBeanDefinition(BEAN_NAME_RETURN_FIELD_DISPATCH_AOP_BEAN_POST_PROCESSOR, builder.getBeanDefinition());
     }
 
     public void registerBeanDefinitionsReturnFieldDispatchAop() {
-        BeanDefinitionBuilder builder = BeanDefinitionBuilder
-                .genericBeanDefinition(ReturnFieldDispatchAop.class, () -> {
-                    ConfigurableEnvironment configurableEnvironment;
-                    if (environment instanceof ConfigurableEnvironment) {
-                        configurableEnvironment = (ConfigurableEnvironment) environment;
-                    } else {
-                        try {
-                            configurableEnvironment = beanFactory.getBean(ConfigurableEnvironment.class);
-                        } catch (Exception e) {
-                            configurableEnvironment = null;
-                        }
-                    }
+        Class aopClass = environment.getProperty(FieldinterceptProperties.PREFIX + ".aopClass", Class.class, AspectjReturnFieldDispatchAop.class);
 
-                    ReturnFieldDispatchAop dispatchAop = new ReturnFieldDispatchAop(s -> beanFactory.getBean(s, BiConsumer.class));
-                    dispatchAop.setConfigurableEnvironment(configurableEnvironment);
-                    dispatchAop.setSkipFieldClassPredicate(type -> beanFactory.getBeanNamesForType(type, true, false).length > 0);
-                    dispatchAop.setBatchAggregation(batchAggregation);
-                    dispatchAop.setBatchAggregationMilliseconds(batchAggregationMilliseconds);
-                    dispatchAop.setBatchAggregationMinConcurrentCount(batchAggregationMinConcurrentCount);
-                    if (parallelQuery) {
-                        TaskDecorator decorator = taskDecorator();
-                        ExecutorService taskExecutor = taskExecutor();
-                        if (decorator != null) {
-                            dispatchAop.setTaskExecutor(e -> taskExecutor.submit(decorator.decorate(e)));
-                        } else {
-                            dispatchAop.setTaskExecutor(taskExecutor::submit);
-                        }
-                    } else {
-                        dispatchAop.setTaskExecutor(null);
-                    }
-                    // 注册判断是否是bean
-                    for (String beanBasePackage : beanBasePackages) {
-                        dispatchAop.addBeanPackagePaths(beanBasePackage);
-                    }
-                    // 注册自定义注解
-                    for (Class<? extends Annotation> myAnnotation : myAnnotations) {
-                        dispatchAop.getAnnotations().add(myAnnotation);
-                    }
-                    // 注册数据库枚举查询别名
-                    if (registryAlias(EnumDBFieldIntercept.class, BEAN_NAME_ENUM_DB_FIELD_INTERCEPT)) {
-                        dispatchAop.getAnnotations().add(EnumDBFieldConsumer.class);
-                    }
-                    return dispatchAop;
+        BeanDefinitionBuilder builder = BeanDefinitionBuilder
+                .genericBeanDefinition(aopClass, () -> {
+                    this.initProperties();
+                    return BeanUtils.instantiateClass(this.aopClass);
                 });
         definitionRegistry.registerBeanDefinition(BEAN_NAME_RETURN_FIELD_DISPATCH_AOP, builder.getBeanDefinition());
+    }
+
+    public void registerBeanDefinitionsReturnKeyFieldIntercept() {
+        BeanDefinitionBuilder builder = BeanDefinitionBuilder
+                .genericBeanDefinition(UsedKeyFieldIntercept.class, UsedKeyFieldIntercept::new);
+        definitionRegistry.registerBeanDefinition(BEAN_NAME_USED_KEY_INTERCEPT, builder.getBeanDefinition());
+    }
+
+    public void registerBeanDefinitionsEnumFieldIntercept() {
+        BeanDefinitionBuilder builder = BeanDefinitionBuilder
+                .genericBeanDefinition(EnumFieldIntercept.class, EnumFieldIntercept::new);
+        definitionRegistry.registerBeanDefinition(BEAN_NAME_ENUM_FIELD_INTERCEPT, builder.getBeanDefinition());
     }
 
     protected TaskDecorator taskDecorator() {
@@ -128,24 +235,19 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    public void registerBeanDefinitionsEnumFieldIntercept() {
-        BeanDefinitionBuilder builder = BeanDefinitionBuilder
-                .genericBeanDefinition(EnumFieldIntercept.class, EnumFieldIntercept::new);
-        definitionRegistry.registerBeanDefinition(BEAN_NAME_ENUM_FIELD_INTERCEPT, builder.getBeanDefinition());
-    }
-
-    public ExecutorService taskExecutor() {
-        return new ThreadPoolExecutor(0, parallelQueryMaxThreads,
-                60L, TimeUnit.SECONDS,
+    protected ExecutorService taskExecutor(FieldinterceptProperties.Thread config) {
+        return new ThreadPoolExecutor(config.getCorePoolSize(), config.getMaxThreads(),
+                config.getKeepAliveTimeSeconds(), TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 new ThreadFactory() {
                     private final ThreadGroup group = Thread.currentThread().getThreadGroup();
                     private final AtomicInteger threadNumber = new AtomicInteger(1);
+                    private final String prefix = config.getPrefix();
 
                     @Override
                     public Thread newThread(Runnable r) {
                         Thread thread = new Thread(group, r,
-                                "FieldIntercept-" + threadNumber.getAndIncrement());
+                                prefix + threadNumber.getAndIncrement());
                         thread.setDaemon(true);
                         return thread;
                     }
@@ -159,7 +261,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
      * @param alias    起的新别名
      * @return 是否注册别名成功。true=成功
      */
-    public boolean registryAlias(Class beanType, String alias) {
+    protected boolean registryAlias(Class beanType, String alias) {
         List<String> beanNames = Arrays.asList(beanFactory.getBeanNamesForType(beanType));
         if (beanNames.isEmpty() || beanNames.contains(alias) || definitionRegistry.containsBeanDefinition(alias)) {
             return false;
@@ -169,24 +271,65 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    public void setImportMetadata(AnnotationMetadata metadata) {
-        AnnotationAttributes attributes = AnnotationAttributes.fromMap(metadata.getAnnotationAttributes(EnableFieldIntercept.class.getName()));
-        this.beanBasePackages = attributes.getStringArray("beanBasePackages");
-        this.parallelQuery = attributes.getBoolean("parallelQuery");
-        this.parallelQueryMaxThreads = attributes.getNumber("parallelQueryMaxThreads").intValue();
-        this.myAnnotations = (Class<? extends Annotation>[]) attributes.getClassArray("myAnnotations");
-        this.batchAggregationMilliseconds = attributes.getNumber("batchAggregationMilliseconds").longValue();
-        this.batchAggregationMinConcurrentCount = attributes.getNumber("batchAggregationMinConcurrentCount").intValue();
-        this.batchAggregation = attributes.getBoolean("batchAggregation");
+    public void setMetadata(FieldinterceptProperties properties) {
+        this.thread = properties.getThread();
+        this.batchAggregation = properties.getBatchAggregation();
+        this.beanBasePackages = properties.getBeanBasePackages();
+        this.myAnnotations = properties.getMyAnnotations();
+        this.aopClass = properties.getAopClass();
+        this.enabled = properties.isEnabled();
+        this.blockGetterTimeoutMilliseconds = properties.getBlockGetterTimeoutMilliseconds();
+        this.maxRunnableConcurrentCount = properties.getMaxRunnableConcurrentCount();
     }
 
     @Override
     public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
         this.beanFactory = beanFactory instanceof ListableBeanFactory ? (ListableBeanFactory) beanFactory : null;
+        this.propertiesSupplier = () -> beanFactory.getBean(FieldinterceptProperties.class);
     }
 
     @Override
     public void setEnvironment(Environment environment) {
         this.environment = environment;
+    }
+
+    /*
+     * 返回key名称一致
+     */
+    private static class UsedKeyFieldIntercept extends KeyNameFieldIntercept<Object, Object> {
+        @Override
+        public Map<Object, String> selectNameMapByKeys(Collection<Object> keys) {
+            return keys.stream()
+                    .collect(Collectors.toMap(e -> e, e -> e == null ? "" : e.toString()));
+        }
+    }
+
+    private static class SpringConsumerFactory<JOIN_POINT> implements Function<String, BiConsumer<JOIN_POINT, List<CField>>> {
+        private final BeanFactory beanFactory;
+
+        private SpringConsumerFactory(BeanFactory beanFactory) {
+            this.beanFactory = beanFactory;
+        }
+
+        @Override
+        public BiConsumer<JOIN_POINT, List<CField>> apply(String name) {
+            return beanFactory.getBean(name, BiConsumer.class);
+        }
+    }
+
+    public static class ReturnFieldDispatchAopBeanPostProcessor implements BeanPostProcessor {
+        protected final Consumer<ReturnFieldDispatchAop<?>> consumer;
+
+        ReturnFieldDispatchAopBeanPostProcessor(Consumer<ReturnFieldDispatchAop<?>> consumer) {
+            this.consumer = consumer;
+        }
+
+        @Override
+        public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+            if (bean instanceof ReturnFieldDispatchAop) {
+                consumer.accept((ReturnFieldDispatchAop<?>) bean);
+            }
+            return bean;
+        }
     }
 }

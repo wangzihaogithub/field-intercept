@@ -1,17 +1,13 @@
 package com.github.fieldintercept;
 
+import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.ShareThreadMap;
 import com.github.fieldintercept.util.TypeUtil;
-import org.aspectj.lang.JoinPoint;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -20,27 +16,25 @@ import java.util.function.Function;
  *
  * @author acer01
  */
-public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
+public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<KEY> keyClass;
-    protected final Class<KEY> valueClass;
-    protected final ShareThreadMap<KEY, VALUE> shareThreadMap;
+    protected final Class<VALUE> valueClass;
     protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
-    protected final Map<Integer, List<Thread>> threadMap = new ConcurrentHashMap<>();
-    protected ConfigurableEnvironment configurableEnvironment;
+    protected Object configurableEnvironment;
 
     public KeyValueFieldIntercept() {
-        this(null, null, 0);
+        this(null, null);
     }
 
-    public KeyValueFieldIntercept(int shareTimeout) {
-        this(null, null, shareTimeout);
+    public KeyValueFieldIntercept(Class<KEY> keyClass) {
+        this(keyClass, null);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, int shareTimeout) {
-        this(keyClass, null, shareTimeout);
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass) {
+        this(keyClass, valueClass, null);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys, int shareTimeout) {
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
         if (keyClass == null) {
             if (getClass() != KeyValueFieldIntercept.class) {
                 try {
@@ -53,19 +47,19 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 keyClass = (Class<KEY>) Integer.class;
             }
         }
-        Class valueClass;
-        try {
-            valueClass = TypeUtil.findGenericType(this, KeyValueFieldIntercept.class, "VALUE");
-        } catch (Exception e) {
-            valueClass = Object.class;
+        if (valueClass == null) {
+            try {
+                valueClass = (Class<VALUE>) TypeUtil.findGenericType(this, KeyValueFieldIntercept.class, "VALUE");
+            } catch (Exception e) {
+                valueClass = (Class<VALUE>) Object.class;
+            }
         }
         this.keyClass = keyClass;
         this.valueClass = valueClass;
         this.selectValueMapByKeys = selectValueMapByKeys;
-        this.shareThreadMap = new ShareThreadMap<>(shareTimeout);
     }
 
-    public Class<KEY> getValueClass() {
+    public Class<VALUE> getValueClass() {
         return valueClass;
     }
 
@@ -73,44 +67,38 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         return keyClass;
     }
 
+    public Function<Collection<KEY>, Map<KEY, VALUE>> getSelectValueMapByKeys() {
+        return selectValueMapByKeys;
+    }
+
     @Override
-    public final void accept(JoinPoint joinPoint, List<CField> cFields) {
+    public final void accept(JOIN_POINT joinPoint, List<CField> cFields) {
         Set<KEY> keyDataList = getKeyDataByFields(cFields);
         if (keyDataList == null || keyDataList.isEmpty()) {
             return;
         }
         Map<KEY, VALUE> valueMap = cacheSelectValueMapByKeys(cFields, keyDataList);
-        if (valueMap == null || valueMap.isEmpty()) {
-            return;
-        }
-        setProperty(cFields, valueMap);
-    }
 
-    @Override
-    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        threadMap.computeIfAbsent(id(result), e -> new ArrayList<>())
-                .add(Thread.currentThread());
-    }
-
-    @Override
-    public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        List<Thread> threadList = threadMap.remove(id(result));
-        if (threadList == null) {
-            return;
+        CompletableFuture<Map<KEY, VALUE>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
+        if (future != null) {
+            ReturnFieldDispatchAop.setAsync(cFields, this, future.thenAccept((result -> {
+                if (result != null) {
+                    valueMap.putAll(result);
+                }
+                if (!valueMap.isEmpty()) {
+                    setProperty(cFields, valueMap);
+                }
+            })));
+        } else if (!valueMap.isEmpty()) {
+            setProperty(cFields, valueMap);
         }
-        for (Thread thread : threadList) {
-            shareThreadMap.remove(thread);
-        }
-    }
-
-    private int id(Object result) {
-        return System.identityHashCode(result);
     }
 
     private Map<KEY, VALUE> cacheSelectValueMapByKeys(List<CField> cFields, Set<KEY> keys) {
         Map<KEY, VALUE> valueMap = new LinkedHashMap<>();
+        Map<KEY, VALUE> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
         for (KEY key : keys) {
-            VALUE value = shareThreadMap.get(key);
+            VALUE value = currentLocalCache.get(key);
             if (value != null) {
                 valueMap.put(key, value);
             }
@@ -126,10 +114,12 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
 
         // 查库与缓存数据合并
         Map<KEY, VALUE> loadValueMap = selectValueMapByKeys(cFields, remainingCacheMissKeys);
-        valueMap.putAll(loadValueMap);
+        if (loadValueMap != null) {
+            valueMap.putAll(loadValueMap);
 
-        // 放入缓存
-        shareThreadMap.putAll(loadValueMap);
+            // 放入缓存
+            currentLocalCache.putAll(loadValueMap);
+        }
         return valueMap;
     }
 
@@ -175,9 +165,11 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected String[] getKeyFieldName(Annotation annotation) {
-        Object keyField = AnnotationUtils.getValue(annotation, "keyField");
+        Object keyField = AnnotationUtil.getValue(annotation, "keyField");
         if (keyField instanceof String[]) {
             return (String[]) keyField;
+        } else if (keyField instanceof String) {
+            return new String[]{(String) keyField};
         } else {
             return null;
         }
@@ -266,7 +258,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 addList(cField, o, genericType, list);
             }
         } else {
-            String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+            String resolveValue = cField.resolvePlaceholders(value);
             if (resolveValue != null) {
                 value = resolveValue;
             }
@@ -281,6 +273,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected void setProperty(List<CField> cFieldList, Map<KEY, VALUE> valueMap) {
+        Map<String, VALUE> stringKeyMap = null;
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
             Class<?> fieldType = cField.getField().getType();
@@ -299,6 +292,12 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, valueMap);
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(valueMap, rewriteKeyDataList);
+                if (value == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                    if (stringKeyMap == null) {
+                        stringKeyMap = toStringKeyMap(valueMap);
+                    }
+                    value = choseValue((Map<KEY, VALUE>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                }
                 if (List.class.isAssignableFrom(fieldType)) {
                     Collection list = new ArrayList<>(1);
                     addList(cField, value, genericType, list::add);
@@ -309,7 +308,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                     value = (VALUE) list;
                 } else if (fieldType.isArray()) {
                     Object array = Array.newInstance(genericType, 1);
-                    String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+                    String resolveValue = cField.resolvePlaceholders(value);
                     if (resolveValue != null) {
                         value = (VALUE) cast(resolveValue, genericType);
                     }
@@ -339,6 +338,12 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                     KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, valueMap);
                     setKeyData(cField, rewriteKeyDataList);
                     VALUE eachValue = choseValue(valueMap, rewriteKeyDataList);
+                    if (eachValue == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
+                        if (stringKeyMap == null) {
+                            stringKeyMap = toStringKeyMap(valueMap);
+                        }
+                        eachValue = choseValue((Map<KEY, VALUE>) stringKeyMap, (KEY[]) toStringKey(rewriteKeyDataList));
+                    }
                     if (eachValue == null) {
                         continue;
                     }
@@ -347,7 +352,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                     } else if (set != null) {
                         addList(cField, eachValue, genericType, set::add);
                     } else if (array != null) {
-                        String resolveValue = cField.resolvePlaceholders(configurableEnvironment, eachValue);
+                        String resolveValue = cField.resolvePlaceholders(eachValue);
                         if (resolveValue != null) {
                             eachValue = (VALUE) cast(resolveValue, genericType);
                         }
@@ -368,7 +373,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
                 if (fieldType.isEnum() && value.getClass().isEnum()) {
                     cField.setValue(value);
                 } else {
-                    String resolveValue = cField.resolvePlaceholders(configurableEnvironment, value);
+                    String resolveValue = cField.resolvePlaceholders(value);
                     if (resolveValue != null) {
                         cField.setValue(resolveValue);
                     }
@@ -384,13 +389,15 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         if (rewriteKeyDataList == null) {
             return;
         }
+        Object keyData;
         if (rewriteKeyDataList.length == 1) {
-            cField.setKeyData(rewriteKeyDataList[0]);
+            keyData = rewriteKeyDataList[0];
         } else if (rewriteKeyDataList.length == 0) {
-            cField.setKeyData(null);
+            keyData = null;
         } else {
-            cField.setKeyData(new ArrayList<>(Arrays.asList(rewriteKeyDataList)));
+            keyData = new ArrayList<>(Arrays.asList(rewriteKeyDataList));
         }
+        cField.setKeyData(keyData);
     }
 
     protected <TYPE> TYPE cast(Object object, Class<TYPE> type) {
@@ -444,7 +451,7 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
     }
 
     protected String getAnnotationJoinDelimiter(Annotation annotation) {
-        Object joinDelimiter = AnnotationUtils.getValue(annotation, "joinDelimiter");
+        Object joinDelimiter = AnnotationUtil.getValue(annotation, "joinDelimiter");
         if (joinDelimiter == null) {
             return ",";
         } else {
@@ -452,10 +459,24 @@ public class KeyValueFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAo
         }
     }
 
-    @Autowired
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
+    public void setConfigurableEnvironment(Object configurableEnvironment) {
         this.configurableEnvironment = configurableEnvironment;
     }
 
+    private Map<String, VALUE> toStringKeyMap(Map<KEY, VALUE> nameMap) {
+        Map<String, VALUE> result = new HashMap<>();
+        for (Map.Entry<KEY, VALUE> entry : nameMap.entrySet()) {
+            result.put(Objects.toString(entry.getKey(), null), entry.getValue());
+        }
+        return result;
+    }
+
+    private String[] toStringKey(KEY[] rewriteKeyDataList) {
+        String[] strings = new String[rewriteKeyDataList.length];
+        for (int i = 0; i < rewriteKeyDataList.length; i++) {
+            strings[i] = Objects.toString(rewriteKeyDataList[i], null);
+        }
+        return strings;
+    }
 
 }

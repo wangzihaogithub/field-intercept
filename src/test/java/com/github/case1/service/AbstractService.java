@@ -1,13 +1,14 @@
 package com.github.case1.service;
 
 
-import com.github.fieldintercept.CompositeFieldIntercept;
-import com.github.fieldintercept.util.TypeUtil;
 import com.github.case1.dao.AbstractMapper;
 import com.github.case1.po.AbstractPO;
+import com.github.fieldintercept.CompositeFieldIntercept;
+import com.github.fieldintercept.KeyNameFieldIntercept;
+import com.github.fieldintercept.KeyValueFieldIntercept;
+import com.github.fieldintercept.util.TypeUtil;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.ConfigurableEnvironment;
 
 import java.beans.PropertyDescriptor;
 import java.util.Collection;
@@ -17,31 +18,38 @@ import java.util.stream.Collectors;
 
 public abstract class AbstractService<REPOSITORY extends AbstractMapper<PO, ID>,
         PO extends AbstractPO<ID>,
-        ID extends Number> extends CompositeFieldIntercept<ID, PO> {
+        ID extends Number> implements CompositeFieldIntercept<ID, PO, Object> {
     @Autowired
     protected REPOSITORY repository;
     private final Class<?> beanType = TypeUtil.findGenericType(this, AbstractService.class, "PO");
     private final PropertyDescriptor nameGetter = BeanUtils.getPropertyDescriptor(beanType, "name");
 
+    private final Class<ID> keyClass = CompositeFieldIntercept.getKeyClass(this, AbstractService.class, "ID", Integer.class);
+    private final Class<PO> valueClass = CompositeFieldIntercept.getValueClass(this, AbstractService.class, "PO", Object.class);
+    private final KeyNameFieldIntercept<ID, Object> keyNameFieldIntercept = new KeyNameFieldIntercept<>(keyClass, this::selectNameMapByKeys);
+    private final KeyValueFieldIntercept<ID, PO, Object> keyValueFieldIntercept = new KeyValueFieldIntercept<>(keyClass, valueClass, this::selectValueMapByKeys);
+
+    @Override
+    public KeyNameFieldIntercept<ID, Object> keyNameFieldIntercept() {
+        return keyNameFieldIntercept;
+    }
+
+    @Override
+    public KeyValueFieldIntercept<ID, PO, Object> keyValueFieldIntercept() {
+        return keyValueFieldIntercept;
+    }
+
     public List<PO> findByIds(Collection<ID> ids) {
         return repository.findByIds(ids);
     }
 
-    @Override
-    public Map<ID, ?> selectNameMapByKeys(Collection<ID> ids) {
+    public Map<ID, String> selectNameMapByKeys(Collection<ID> ids) {
         return convertNames(repository.findByIds(ids));
     }
 
-    @Override
     public Map<ID, PO> selectValueMapByKeys(Collection<ID> ids) {
         return repository.findByIds(ids).stream()
                 .collect(Collectors.toMap(AbstractPO::getId, e -> e));
-    }
-
-    @Autowired
-    @Override
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
-        super.setConfigurableEnvironment(configurableEnvironment);
     }
 
     protected Map<ID, String> convertNames(List<PO> pos) {

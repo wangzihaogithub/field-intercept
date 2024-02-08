@@ -1,0 +1,3 @@
+iGDubboPUserFilter=com.github.securityfilter.DubboAccessUserFilter
+DubboWebRequestIdCreateFilter=com.github.securityfilter.DubboWebRequestIdCreateFilter
+DubboRequestIdCreateFilter=com.github.securityfilter.DubboRequestIdCreateFilter

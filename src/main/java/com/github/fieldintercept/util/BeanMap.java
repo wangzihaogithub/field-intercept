@@ -61,6 +61,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     }
 
     public BeanMap() {
+        super();
         this.bean = this;
         this.fieldDescriptorMap = findPropertyFieldDescriptor(bean.getClass());
         this.descriptorMap = findPropertyDescriptor(bean.getClass());
@@ -119,6 +120,75 @@ public class BeanMap extends LinkedHashMap<String, Object> {
         }
         matcher.appendTail(sb);
         return sb.toString();
+    }
+
+    public static Object invokeGetter(Object bean, String key) {
+        if (bean == null) {
+            return null;
+        } else if (bean instanceof Map) {
+            return ((Map<?, ?>) bean).containsKey(key) ? ((Map<?, ?>) bean).get(key) : null;
+        } else {
+            Map<String, PropertyDescriptor> descriptorMap = findPropertyDescriptor(bean.getClass());
+            try {
+                PropertyDescriptor propertyDescriptor = getPropertyDescriptor(descriptorMap, key);
+                if (propertyDescriptor != null) {
+                    Method readMethod = propertyDescriptor.getReadMethod();
+                    if (readMethod != null) {
+                        try {
+                            return readMethod.invoke(bean);
+                        } catch (ReflectiveOperationException ignored) {
+                        }
+                    }
+
+                    Field field = getField(propertyDescriptor);
+                    if (field != null) {
+                        field.setAccessible(true);
+                        return field.get(bean);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return null;
+        }
+    }
+
+    public static boolean invokeSetter(Object bean, String key, Object value) {
+        if (bean == null) {
+            return false;
+        } else if (bean instanceof Map) {
+            if (bean instanceof BeanMap) {
+                return ((BeanMap) bean).set(key, value);
+            } else {
+                ((Map) bean).put(key, value);
+                return true;
+            }
+        } else {
+            Map<String, PropertyDescriptor> descriptorMap = findPropertyDescriptor(bean.getClass());
+            try {
+                PropertyDescriptor propertyDescriptor = getPropertyDescriptor(descriptorMap, key);
+                if (propertyDescriptor != null) {
+                    Method writeMethod = propertyDescriptor.getWriteMethod();
+                    if (writeMethod != null) {
+                        try {
+                            Object castValue = TypeUtil.cast(value, propertyDescriptor.getPropertyType());
+                            writeMethod.invoke(bean, castValue);
+                            return true;
+                        } catch (Exception ignored) {
+
+                        }
+                    }
+                    Field field = getField(propertyDescriptor);
+                    if (field != null && !Modifier.isFinal(field.getModifiers())) {
+                        Object castValue = TypeUtil.cast(value, field.getType());
+                        field.setAccessible(true);
+                        field.set(bean, castValue);
+                        return true;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
+        }
     }
 
     public static Map<String, PropertyDescriptor> findPropertyDescriptor(Class<?> beanClass) {

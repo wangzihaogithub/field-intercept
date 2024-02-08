@@ -5,16 +5,21 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+/**
+ * 服务配置
+ *
+ * @author hao 2024年2月4日
+ */
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.METHOD)
-public @interface ReturnFieldAop {
+@Target({ElementType.TYPE})
+public @interface ServiceOptions {
 
     /**
-     * 是否开启将N毫秒内的所有线程聚合到一起查询
+     * 是否作为远程方法
      *
-     * @return true=开启,false=不开启
+     * @return true=是
      */
-    boolean batchAggregation() default false;
+    boolean rpc() default true;
 
     /**
      * 使用注解继承

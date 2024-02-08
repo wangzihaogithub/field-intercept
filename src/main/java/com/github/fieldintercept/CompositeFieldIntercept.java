@@ -1,123 +1,131 @@
 package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.TypeUtil;
-import org.aspectj.lang.JoinPoint;
-import org.springframework.core.env.ConfigurableEnvironment;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * 组合字段字段设置名称
+ * 例子：
+ * <pre>
+ *
+ *     public abstract class AbstractService<REPOSITORY extends AbstractMapper<PO, ID>,
+ *         PO extends AbstractPO<ID>,
+ *         ID extends Number> implements CompositeFieldIntercept<ID, PO, Object> {
+ *
+ *          private final Class<ID> keyClass = CompositeFieldIntercept.getKeyClass(this, AbstractService.class, "ID", Integer.class);
+ *
+ *          private final Class<PO> valueClass = CompositeFieldIntercept.getValueClass(this, AbstractService.class, "PO", Object.class);
+ *
+ *          private final KeyNameFieldIntercept<ID, Object> keyNameFieldIntercept = new KeyNameFieldIntercept<>(keyClass, this::selectNameMapByKeys, 0);
+ *
+ *          private final KeyValueFieldIntercept<ID, PO, Object> keyValueFieldIntercept = new KeyValueFieldIntercept<>(keyClass, valueClass, this::selectValueMapByKeys, 0);
+ *
+ *          \@Override
+ *          public KeyNameFieldIntercept<ID, Object> keyNameFieldIntercept() {
+ *              return keyNameFieldIntercept;
+ *          }
+ *
+ *          \@Override
+ *          public KeyValueFieldIntercept<ID, PO, Object> keyValueFieldIntercept() {
+ *              return keyValueFieldIntercept;
+ *          }
+ *     }
+ * </pre>
  *
  * @author acer01
  */
-public class CompositeFieldIntercept<KEY, VALUE> implements ReturnFieldDispatchAop.FieldIntercept {
-    protected final KeyNameFieldIntercept<KEY> keyNameFieldIntercept;
-    protected final KeyValueFieldIntercept<KEY, VALUE> keyValueFieldIntercept;
-
-    public CompositeFieldIntercept() {
-        this(null, 0);
-    }
-
-    public CompositeFieldIntercept(Class<KEY> keyClass,
-                                   int shareTimeout) {
-        if (keyClass == null) {
-            if (getClass() != CompositeFieldIntercept.class) {
-                try {
-                    Class<?> key = TypeUtil.findGenericType(this, CompositeFieldIntercept.class, "KEY");
-                    keyClass = (Class<KEY>) key;
-                } catch (IllegalStateException ignored) {
-                }
-            }
-            if (keyClass == null) {
-                keyClass = (Class<KEY>) Integer.class;
+public interface CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> extends ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
+    static <KEY, VALUE, JoinPoint, INSTANCE extends CompositeFieldIntercept<KEY, VALUE, JoinPoint>> Class<KEY> getKeyClass(INSTANCE thisInstance, Class<? super INSTANCE> interceptClass, String genericTypeParamName, Class<?> defaultClass) {
+        Class<KEY> keyClass = null;
+        if (thisInstance.getClass() != interceptClass) {
+            try {
+                Class<?> key = TypeUtil.findGenericType(thisInstance, interceptClass, genericTypeParamName);
+                keyClass = (Class) key;
+            } catch (IllegalStateException ignored) {
             }
         }
-        this.keyNameFieldIntercept = new KeyNameFieldIntercept<>(keyClass, this::selectNameMapByKeys, shareTimeout);
-        this.keyValueFieldIntercept = new KeyValueFieldIntercept<>(keyClass, this::selectValueMapByKeys, shareTimeout);
-    }
-
-    public CompositeFieldIntercept(Class<KEY> keyClass,
-                                   Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys,
-                                   Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys,
-                                   int shareTimeout) {
         if (keyClass == null) {
-            if (getClass() != CompositeFieldIntercept.class) {
-                try {
-                    Class<?> key = TypeUtil.findGenericType(this, CompositeFieldIntercept.class, "T");
-                    keyClass = (Class<KEY>) key;
-                } catch (IllegalStateException ignored) {
-                }
-            }
-            if (keyClass == null) {
-                keyClass = (Class<KEY>) Integer.class;
-            }
+            keyClass = (Class<KEY>) defaultClass;
         }
-        this.keyNameFieldIntercept = new KeyNameFieldIntercept<>(keyClass, selectNameMapByKeys, shareTimeout);
-        this.keyValueFieldIntercept = new KeyValueFieldIntercept<>(keyClass, selectValueMapByKeys, shareTimeout);
+        return keyClass;
     }
 
-    public Map<KEY, ?> selectNameMapByKeys(Collection<KEY> keys) {
-        return null;
+    static <KEY, VALUE, JoinPoint, INSTANCE extends CompositeFieldIntercept<KEY, VALUE, JoinPoint>> Class<VALUE> getValueClass(INSTANCE thisInstance, Class<? super INSTANCE> interceptClass, String genericTypeParamName, Class<?> defaultClass) {
+        Class<VALUE> genericType;
+        try {
+            genericType = (Class<VALUE>) TypeUtil.findGenericType(thisInstance, interceptClass, genericTypeParamName);
+        } catch (IllegalStateException ignored) {
+            genericType = null;
+        }
+        if (genericType == null) {
+            genericType = (Class<VALUE>) defaultClass;
+        }
+        return genericType;
     }
 
-    public Map<KEY, VALUE> selectValueMapByKeys(Collection<KEY> keys) {
-        return null;
-    }
+    KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept();
+
+    KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> keyValueFieldIntercept();
 
     @Override
-    public void accept(JoinPoint joinPoint, List<CField> cFields) {
-        List<CField> nameFields = cFields.stream().filter(e -> !e.existPlaceholder() && isString(e))
-                .collect(Collectors.toList());
-        List<CField> beanFields;
-        if (nameFields.size() > 0) {
-            keyNameFieldIntercept.accept(joinPoint, nameFields);
-            beanFields = new ArrayList<>(cFields);
-            beanFields.removeAll(nameFields);
+    default void accept(JOIN_POINT joinPoint, List<CField> fieldList) {
+        ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
+        List<CField> keyNameFieldList = split.getKeyNameFieldList();
+        List<CField> keyValueFieldList = split.getKeyValueFieldList();
+
+        ReturnFieldDispatchAop<JOIN_POINT> aop;
+        if (keyNameFieldList != null && keyValueFieldList != null && (aop = ReturnFieldDispatchAop.getAop(fieldList)) != null) {
+            List<Runnable> runnableList;
+            if (keyValueFieldList.size() > keyNameFieldList.size()) {
+                runnableList = Arrays.asList(
+                        () -> keyValueFieldIntercept().accept(joinPoint, keyValueFieldList),
+                        () -> keyNameFieldIntercept().accept(joinPoint, keyNameFieldList)
+                );
+            } else {
+                runnableList = Arrays.asList(
+                        () -> keyNameFieldIntercept().accept(joinPoint, keyNameFieldList),
+                        () -> keyValueFieldIntercept().accept(joinPoint, keyValueFieldList)
+                );
+            }
+            // await
+            aop.await(runnableList);
         } else {
-            beanFields = cFields;
+            if (keyNameFieldList != null) {
+                keyNameFieldIntercept().accept(joinPoint, keyNameFieldList);
+            }
+            if (keyValueFieldList != null) {
+                keyValueFieldIntercept().accept(joinPoint, keyValueFieldList);
+            }
         }
+    }
 
-        if (beanFields.size() > 0) {
-            keyValueFieldIntercept.accept(joinPoint, beanFields);
+    @Override
+    default void begin(String beanName, ReturnFieldDispatchAop.GroupCollect<JOIN_POINT> collect, List<CField> fieldList) {
+        ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
+        List<CField> keyNameFieldList = split.getKeyNameFieldList();
+        List<CField> keyValueFieldList = split.getKeyValueFieldList();
+
+        if (keyNameFieldList != null) {
+            keyNameFieldIntercept().begin(beanName, collect, keyNameFieldList);
+        }
+        if (keyValueFieldList != null) {
+            keyValueFieldIntercept().begin(beanName, collect, keyValueFieldList);
         }
     }
 
     @Override
-    public void begin(JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        keyNameFieldIntercept.begin(joinPoint, fieldList, result);
-        keyValueFieldIntercept.begin(joinPoint, fieldList, result);
-    }
+    default void end(String beanName, ReturnFieldDispatchAop.GroupCollect<JOIN_POINT> collect, List<CField> fieldList) {
+        ReturnFieldDispatchAop.SplitCFieldList split = ReturnFieldDispatchAop.split(fieldList);
+        List<CField> keyNameFieldList = split.getKeyNameFieldList();
+        List<CField> keyValueFieldList = split.getKeyValueFieldList();
 
-    @Override
-    public void stepBegin(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        keyNameFieldIntercept.stepBegin(step, joinPoint, fieldList, result);
-        keyValueFieldIntercept.stepBegin(step, joinPoint, fieldList, result);
+        if (keyNameFieldList != null) {
+            keyNameFieldIntercept().end(beanName, collect, keyNameFieldList);
+        }
+        if (keyValueFieldList != null) {
+            keyValueFieldIntercept().end(beanName, collect, keyValueFieldList);
+        }
     }
-
-    @Override
-    public void stepEnd(int step, JoinPoint joinPoint, List<CField> fieldList, Object result) {
-        keyNameFieldIntercept.stepEnd(step, joinPoint, fieldList, result);
-        keyValueFieldIntercept.stepEnd(step, joinPoint, fieldList, result);
-    }
-
-    @Override
-    public void end(JoinPoint joinPoint, List<CField> allFieldList, Object result) {
-        keyNameFieldIntercept.end(joinPoint, allFieldList, result);
-        keyValueFieldIntercept.end(joinPoint, allFieldList, result);
-    }
-
-    public boolean isString(CField field) {
-        return field.getType() == String.class || field.getGenericType() == String.class;
-    }
-
-    public void setConfigurableEnvironment(ConfigurableEnvironment configurableEnvironment) {
-        keyValueFieldIntercept.setConfigurableEnvironment(configurableEnvironment);
-    }
-
 }

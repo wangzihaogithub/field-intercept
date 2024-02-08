@@ -120,7 +120,7 @@ public class BeanUtil {
             String key = entry.getKey();
             Object sourceValue = entry.getValue();
             Field sourceField = sourceBeanMap.getField(key);
-            if(sourceField != null && Modifier.isTransient(sourceField.getModifiers())){
+            if (sourceField != null && Modifier.isTransient(sourceField.getModifiers())) {
                 continue;
             }
             Object targetValue = transform(sourceValue, null, context);
@@ -153,7 +153,7 @@ public class BeanUtil {
             String key = entry.getKey();
             Object sourceValue = entry.getValue();
             Field sourceField = sourceBeanMap.getField(key);
-            if(sourceField != null && Modifier.isTransient(sourceField.getModifiers())){
+            if (sourceField != null && Modifier.isTransient(sourceField.getModifiers())) {
                 continue;
             }
             PropertyDescriptor targetDescriptor = targetBeanMap.getPropertyDescriptor(key);

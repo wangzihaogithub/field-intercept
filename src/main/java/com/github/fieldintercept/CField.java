@@ -1,13 +1,6 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.BeanUtil;
-import com.github.fieldintercept.util.TypeUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.annotation.AnnotationUtils;
-import org.springframework.core.env.*;
-import org.springframework.util.SystemPropertyUtils;
+import com.github.fieldintercept.util.*;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
@@ -21,15 +14,13 @@ import java.util.*;
  * @author acer01
  */
 public class CField {
-    private final static Logger log = LoggerFactory.getLogger(CField.class);
     private final Object bean;
     private final BeanMap beanHandler;
     private final Field field;
     private final Annotation annotation;
-    /**
-     * 这个字段被这个消费者消费
-     */
     private final String consumerName;
+    private final Class genericType;
+    private final Object configurableEnvironment;
     /**
      * key的数据
      */
@@ -44,22 +35,22 @@ public class CField {
      */
     private Boolean existPlaceholder;
     private List<String> placeholders;
-    private Class genericType;
     private Object value;
 
-    public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation) {
+    public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation, Object configurableEnvironment) {
         this.consumerName = consumerName;
         this.beanHandler = beanHandler;
         this.bean = beanHandler.getBean();
         this.field = field;
         this.annotation = annotation;
         this.genericType = BeanUtil.getGenericType(field);
+        this.configurableEnvironment = configurableEnvironment;
     }
 
     private static List<String> getPlaceholderAttributes(Annotation annotation, String[] attributeNames) {
         List<String> placeholders = new ArrayList<>();
         for (String attributeName : attributeNames) {
-            Object keyField = AnnotationUtils.getValue(annotation, attributeName);
+            Object keyField = AnnotationUtil.getValue(annotation, attributeName);
             if (keyField instanceof String[] && ((String[]) keyField).length > 0) {
                 placeholders.addAll(Arrays.asList((String[]) keyField));
             } else if (keyField instanceof String && !"".equals(keyField)) {
@@ -74,8 +65,8 @@ public class CField {
         if (template == null) {
             return false;
         }
-        int beginIndex = template.indexOf(SystemPropertyUtils.PLACEHOLDER_PREFIX);
-        return beginIndex != -1 && template.indexOf(SystemPropertyUtils.PLACEHOLDER_SUFFIX, beginIndex) != -1;
+        int beginIndex = template.indexOf("${");
+        return beginIndex != -1 && template.indexOf("}", beginIndex) != -1;
     }
 
     public String getConsumerName() {
@@ -144,7 +135,7 @@ public class CField {
             try {
                 value = BeanUtil.transform(object, field.getType());
             } catch (Exception e1) {
-                log.error("ReturnFieldDispatchAop on setValue. Type cast error. field={}, data='{}', sourceType={}, targetType={}",
+                PlatformDependentUtil.logError(CField.class, "ReturnFieldDispatchAop on setValue. Type cast error. field={}, data='{}', sourceType={}, targetType={}",
                         bean.getClass().getSimpleName() + "[" + field.getName() + "]",
                         object,
                         object.getClass().getSimpleName(),
@@ -191,9 +182,12 @@ public class CField {
      * @param metadata                元数据
      * @return 解析后
      */
-    public String resolvePlaceholders(ConfigurableEnvironment configurableEnvironment, Object metadata) {
-        List<String> placeholders = getPlaceholders();
-        return resolvePlaceholders(placeholders, configurableEnvironment, metadata);
+    public String resolvePlaceholders(Object configurableEnvironment, Object metadata) {
+        return resolvePlaceholders(getPlaceholders(), configurableEnvironment, metadata);
+    }
+
+    public String resolvePlaceholders(Object metadata) {
+        return resolvePlaceholders(getPlaceholders(), configurableEnvironment, metadata);
     }
 
     public List<String> getPlaceholders() {
@@ -212,58 +206,8 @@ public class CField {
      * @param metadata                元数据
      * @return 解析后
      */
-    public String resolvePlaceholders(Collection<String> placeholders, ConfigurableEnvironment configurableEnvironment, Object metadata) {
-        if (placeholders == null || placeholders.isEmpty()) {
-            return null;
-        }
-        Map map = BeanMap.toMap(metadata);
-        MutablePropertySources propertySources = new MutablePropertySources();
-        PropertySourcesPropertyResolver resolver = new PropertySourcesPropertyResolver(propertySources) {
-            @Override
-            protected String getPropertyAsRawString(String key) {
-                String[] keys = key.split("[.]");
-                if (keys.length == 1) {
-                    return getProperty(key, String.class, true);
-                } else {
-                    Object value = map.get(keys[0]);
-                    Map value2Map = BeanMap.toMap(value);
-                    for (int i = 1; i < keys.length; i++) {
-                        value = value2Map.get(keys[i]);
-                        if (value == null) {
-                            break;
-                        }
-                        if (i != keys.length - 1) {
-                            value2Map = BeanMap.toMap(value);
-                        }
-                    }
-                    return value == null ? null : String.valueOf(value);
-                }
-            }
-
-            @Override
-            protected void logKeyFound(String key, PropertySource<?> propertySource, Object value) {
-
-            }
-        };
-        propertySources.addLast(new MapPropertySource(map.getClass().getSimpleName(), map));
-        if (configurableEnvironment != null) {
-            for (PropertySource<?> propertySource : configurableEnvironment.getPropertySources()) {
-                propertySources.addLast(propertySource);
-            }
-            resolver.setConversionService(configurableEnvironment.getConversionService());
-        }
-        for (String placeholder : placeholders) {
-            try {
-                String value = resolver.resolvePlaceholders(placeholder);
-                if (Objects.equals(value, placeholder)) {
-                    continue;
-                }
-                return value;
-            } catch (IllegalArgumentException e) {
-                //skip
-            }
-        }
-        return null;
+    public String resolvePlaceholders(Collection<String> placeholders, Object configurableEnvironment, Object metadata) {
+        return PlatformDependentUtil.EXIST_SPRING ? SpringUtil.resolvePlaceholders(placeholders, configurableEnvironment, metadata) : null;
     }
 
     @Override

@@ -1,17 +1,17 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.annotation.EnableFieldIntercept;
+// import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.entity.ApplyOrder;
 import com.github.fieldintercept.entity.BaseEnumGroupEnum;
 import com.github.fieldintercept.entity.EnumDBFieldConsumer;
+import com.github.fieldintercept.util.AnnotationUtil;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.task.TaskDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
@@ -24,10 +24,10 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 //@EnableFieldIntercept(beanBasePackages = {"com.ig"})
-@EnableFieldIntercept(beanBasePackages = {"com.ig"},
-        myAnnotations = {EnumDBFieldConsumer.class},
-        batchAggregation = true
-)
+//@EnableFieldIntercept(beanBasePackages = {"com.ig"},
+//        myAnnotations = {EnumDBFieldConsumer.class},
+//        batchAggregation = true
+//)
 @SpringBootApplication
 public class FieldInterceptApplicationTest {
 
@@ -78,7 +78,7 @@ public class FieldInterceptApplicationTest {
         public String[] getGroups(Annotation annotation) {
             String[] groups = super.getGroups(annotation);
             if (groups == null) {
-                BaseEnumGroupEnum[] value = (BaseEnumGroupEnum[]) AnnotationUtils.getValue(annotation);
+                BaseEnumGroupEnum[] value = (BaseEnumGroupEnum[]) AnnotationUtil.getValue(annotation);
                 groups = Stream.of(value).map(BaseEnumGroupEnum::getGroup)
                         .toArray(String[]::new);
             }

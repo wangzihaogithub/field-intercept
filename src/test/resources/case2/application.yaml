@@ -1,0 +1,5 @@
+spring:
+  fieldintercept:
+    beanBasePackages: 'com.github'
+    batch-aggregation-milliseconds: 1000
+    batch-aggregation: auto
