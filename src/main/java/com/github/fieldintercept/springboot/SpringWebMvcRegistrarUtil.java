@@ -79,7 +79,7 @@ public class SpringWebMvcRegistrarUtil {
 
         @Override
         public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType, Class<? extends HttpMessageConverter<?>> selectedConverterType, ServerHttpRequest request, ServerHttpResponse response) {
-            ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute(null);
+            ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute();
             boolean isControllerProxyMethod;
             if (pending != null && !pending.isDone()) {
                 Object value = pending.value();
@@ -110,8 +110,8 @@ public class SpringWebMvcRegistrarUtil {
 
         @Override
         public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType, Class<? extends HttpMessageConverter<?>> selectedConverterType, ServerHttpRequest request, ServerHttpResponse response) {
-            if (SpringWebUtil.requestAttributeIsControllerProxyMethod(null)) {
-                ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute(null);
+            if (SpringWebUtil.requestAttributeIsControllerProxyMethod()) {
+                ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute();
                 if (pending != null && !pending.isDone()) {
                     CompletableFuture<Object> future = new CompletableFuture<>();
                     pending.whenComplete((value, err) -> {

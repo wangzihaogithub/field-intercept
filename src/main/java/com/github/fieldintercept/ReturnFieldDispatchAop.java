@@ -18,6 +18,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
@@ -47,7 +50,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     });
     private static final Collection<Class<? extends Annotation>> SPRING_INDEXED_ANNOTATION_LIST = PlatformDependentUtil.SPRING_INDEXED_ANNOTATION != null ? Collections.singletonList(PlatformDependentUtil.SPRING_INDEXED_ANNOTATION) : null;
     public static final Predicate<Class> DEFAULT_SKIP_FIELD_CLASS_PREDICATE = type -> PlatformDependentUtil.SPRING_INDEXED_ANNOTATION != null && AnnotationUtil.findDeclaredAnnotation(type, SPRING_INDEXED_ANNOTATION_LIST, SKIP_FIELD_CLASS_CACHE_MAP) != null;
-
+    private static ReturnFieldDispatchAop INSTANCE;
     protected final AnnotationCache<ReturnFieldAop> returnFieldAopCache = new AnnotationCache<>(ReturnFieldAop.class, Arrays.asList(ReturnFieldAop.class, ReturnFieldAop.Extends.class), 100);
     protected final AnnotationCache<RouterFieldConsumer> routerFieldConsumerCache = new AnnotationCache<>(RouterFieldConsumer.class, Arrays.asList(RouterFieldConsumer.class, RouterFieldConsumer.Extends.class), 100);
     protected final AnnotationCache<FieldConsumer> fieldConsumerCache = new AnnotationCache<>(FieldConsumer.class, Arrays.asList(FieldConsumer.class, FieldConsumer.Extends.class), 100);
@@ -60,6 +63,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
      * 动态注解 或 用户自定义注解
      */
     private final Set<Class<? extends Annotation>> annotations = new LinkedHashSet<>();
+    // 当前提交任务数量
+    private final AtomicInteger currentSubmitRunnableCounter = new AtomicInteger();
+    // 总共提交任务数量
+    private final LongAdder totalSubmitRunnableCounter = new LongAdder();
+    private final Lock autowiredRunnableLock = new ReentrantLock();
+    private final Condition autowiredRunnableCondition = autowiredRunnableLock.newCondition();
     private final AtomicReference<Thread> pendingSignalThreadRef = new AtomicReference<>();
     private final LongAdder concurrentThreadCounter = new LongAdder();
     private final Map<Thread, AtomicInteger> concurrentThreadMap = new ConcurrentHashMap<>();
@@ -93,18 +102,32 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     private Function<Runnable, Runnable> taskDecorate;
     private Object configurableEnvironment;
     private Predicate<Class> skipFieldClassPredicate = DEFAULT_SKIP_FIELD_CLASS_PREDICATE;
-    private BatchAggregationEnum batchAggregation;
+    /**
+     * 自动注入同步调用时的超时时间
+     */
+    private int blockGetterTimeoutMilliseconds = 10_000;
+    /**
+     * 控制提交AutowiredRunnable的数量，如果超过这个数量，就会阻塞
+     */
+    private int maxRunnableConcurrentCount = Integer.MAX_VALUE;
+
+    /**
+     * 控制批量聚合信号最大并发量，如果超过这个并发量，并且超过了队列长度(pendingQueueCapacity)，则会阻塞调用方继续生产自动注入任务。
+     */
+    private int batchAggregationMaxSignalConcurrentCount = 10000;
     private int batchAggregationThresholdMinConcurrentCount = 1;
     private long batchAggregationPollMilliseconds = 100;
     private int batchAggregationPollMinSize = 1;
     private int batchAggregationPollMaxSize = 1000;
     private int batchAggregationPendingQueueCapacity = 10000;
     private boolean batchAggregationPendingNonBlock = false;
+    private BatchAggregationEnum batchAggregation;
 
     private BiPredicate<JOIN_POINT, Object> enabled = null;
 
     public ReturnFieldDispatchAop() {
         this.pendingList = new LinkedBlockingDeque<>(batchAggregationPendingQueueCapacity);
+        INSTANCE = this;
     }
 
     public ReturnFieldDispatchAop(Map<String, ? extends BiConsumer<JOIN_POINT, List<CField>>> map) {
@@ -115,6 +138,24 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public ReturnFieldDispatchAop(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
         this();
         this.consumerFactory = consumerProvider;
+    }
+
+    public static <T> ReturnFieldDispatchAop<T> getInstance() {
+        return INSTANCE;
+    }
+
+    public static void staticAutowiredFieldValue(Object... result) {
+        if (INSTANCE != null) {
+            INSTANCE.autowiredFieldValue(result);
+        }
+    }
+
+    public static <T> T staticAutowiredFieldValue(T result) {
+        if (INSTANCE != null) {
+            return (T) INSTANCE.autowiredFieldValue(result);
+        } else {
+            return result;
+        }
     }
 
     public static <JOIN_POINT> ReturnFieldDispatchAop<JOIN_POINT> newInstance(Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerProvider) {
@@ -227,11 +268,182 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static <KEY, VALUE> Map<KEY, VALUE> getCurrentLocalCache(List<CField> cFieldList, Object cacheKey) {
+    public static <T> CompletableFuture<T> startAsync(List<CField> cFieldList, Object cacheKey) {
         if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
-            return (Map<KEY, VALUE>) ((SplitCFieldList) cFieldList).groupCollect.getConsumerQueryCache(cacheKey);
+            return ((SplitCFieldList) cFieldList).groupCollect.startAsync(((SplitCFieldList) cFieldList).beanName, cacheKey);
         } else {
             return null;
+        }
+    }
+
+    public static <T> CompletableFuture<T> getAsync(List<CField> cFieldList, Object cacheKey) {
+        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
+            return ((SplitCFieldList) cFieldList).groupCollect.getAsync(((SplitCFieldList) cFieldList).beanName, cacheKey);
+        } else {
+            return null;
+        }
+    }
+
+    public static boolean setAsync(List<CField> cFieldList, Object cacheKey, CompletableFuture future) {
+        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
+            ((SplitCFieldList) cFieldList).groupCollect.setAsync(((SplitCFieldList) cFieldList).beanName, cacheKey, future);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    public static <KEY, VALUE> Map<KEY, VALUE> getLocalCache(List<CField> cFieldList, Object cacheKey) {
+        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
+            return (Map<KEY, VALUE>) ((SplitCFieldList) cFieldList).groupCollect.getLocalCache(((SplitCFieldList) cFieldList).beanName, cacheKey);
+        } else {
+            return null;
+        }
+    }
+
+    private static <JOIN_POINT> Object replayGroupBy(String beanName, BiConsumer<JOIN_POINT, List<CField>> consumer, Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        StaticMethodAccessor staticMethodAccessor = getStaticMethodAccessor(beanName);
+        GroupCollect<JOIN_POINT> groupCollectMap = pending.groupCollectMap;
+        if (staticMethodAccessor != null) {
+            Object[] objects = new Object[1];
+            pending.snapshotGroupKeyRunnable.replay(() -> {
+                try {
+                    objects[0] = staticMethodAccessor.invoke(getParameterValues(staticMethodAccessor.getParameterTypes(), staticMethodAccessor.getParameterNames(), beanName, consumer, groupCollectMap.joinPoint, groupCollectMap.result, groupCollectMap, pending, pendings, aop));
+                } catch (InvocationTargetException | IllegalAccessException e) {
+                    aop.sneakyThrows(e);
+                }
+            });
+            return objects[0] == null ? "" : objects[0];
+        } else {
+            return "";
+        }
+    }
+
+    private static <JOIN_POINT> Object[] getParameterValues(Class<?>[] parameterTypes, String[] parameterNames,
+                                                            String beanName, BiConsumer<?, List<CField>> consumer, Object joinPoint,
+                                                            Object result, ReturnFieldDispatchAop.GroupCollect<JOIN_POINT> groupCollect,
+                                                            ReturnFieldDispatchAop.Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings,
+                                                            ReturnFieldDispatchAop<JOIN_POINT> aop) throws InvocationTargetException, IllegalAccessException {
+        Object[] args = new Object[parameterTypes.length];
+        for (int i = 0; i < parameterTypes.length; i++) {
+            Class<?> parameterType = parameterTypes[i];
+            String parameterName = parameterNames == null ? null : parameterNames[i];
+
+            Object arg;
+            if ("result".equalsIgnoreCase(parameterName) && parameterType.isAssignableFrom(result.getClass())) {
+                arg = result;
+            } else if (parameterType == String.class) {
+                arg = beanName;
+            } else if (parameterType == Object.class) {
+                if ("result".equalsIgnoreCase(parameterName)) {
+                    arg = result;
+                } else if ("joinPoint".equalsIgnoreCase(parameterName) || "point".equalsIgnoreCase(parameterName)) {
+                    arg = joinPoint;
+                } else {
+                    arg = result;
+                }
+            } else if (parameterType == Pending[].class) {
+                arg = pendings;
+            } else if (parameterType.isAssignableFrom(consumer.getClass())) {
+                arg = consumer;
+            } else if (parameterType.isAssignableFrom(pending.getClass())) {
+                arg = pending;
+            } else if (parameterType.isAssignableFrom(groupCollect.getClass())) {
+                arg = groupCollect;
+            } else if (parameterType.isAssignableFrom(aop.getClass())) {
+                arg = aop;
+            } else if (joinPoint != null && parameterType.isAssignableFrom(joinPoint.getClass())) {
+                arg = joinPoint;
+            } else if (parameterType.isAssignableFrom(result.getClass())) {
+                arg = result;
+            } else {
+                arg = null;
+            }
+            args[i] = arg;
+        }
+        return args;
+    }
+
+    private static <JOIN_POINT> List<Runnable> groupByMerge(Pending<JOIN_POINT>[] pendings, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        Map<Object, List<PendingKey<JOIN_POINT>>> groupByMap = new HashMap<>();
+        for (Pending<JOIN_POINT> pending : pendings) {
+            for (Map.Entry<String, List<CField>> entry : pending.groupCollectMap.groupCollectMap.entrySet()) {
+                String beanName = entry.getKey();
+                BiConsumer<JOIN_POINT, List<CField>> consumer = pending.groupCollectMap.getConsumer(beanName);
+
+                Object groupKey = replayGroupBy(beanName, consumer, pending, pendings, aop);
+                groupByMap.computeIfAbsent(groupKey, e -> new ArrayList<>())
+                        .add(new PendingKey<>(groupKey, beanName, consumer, pending, aop));
+            }
+        }
+
+        int size = groupByMap.size();
+        if (size > 1) {
+            List<Runnable> list = new ArrayList<>(size);
+            for (Map.Entry<Object, List<PendingKey<JOIN_POINT>>> entry : groupByMap.entrySet()) {
+                List<PendingKey<JOIN_POINT>> pendingKeyList = entry.getValue();
+                if (pendingKeyList.size() == 1) {
+                    list.add(pendingKeyList.get(0).pending);
+                } else {
+                    list.add(new PartMergePendingRunnable<>(entry.getKey(), pendingKeyList, aop));
+                }
+            }
+            return list;
+        } else {
+            return Collections.singletonList(new AllMergePendingRunnable<>(pendings, aop));
+        }
+    }
+
+    private static <JOIN_POINT> void autowiredAsyncNext(CompletableFuture<Void> future, GroupCollect<JOIN_POINT> groupCollectMap, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        try {
+            // 检查注入后的是否需要继续注入
+            Object next = groupCollectMap.next();
+            //收集返回值中的所有实体类
+            groupCollectMap.aop.collectBean(next, groupCollectMap);
+            if (groupCollectMap.isEmpty()) {
+                future.complete(null);
+            } else {
+                autowiredAsync(future, groupCollectMap, taskExecutor, taskDecorate);
+            }
+        } catch (Throwable e) {
+            future.completeExceptionally(e);
+        }
+    }
+
+    private static <JOIN_POINT> void autowiredAsync(CompletableFuture<Void> future, GroupCollect<JOIN_POINT> groupCollectMap, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        try {
+            List<AutowiredRunnable<JOIN_POINT>> partition = groupCollectMap.partition();
+            if (partition == null || partition.isEmpty()) {
+                future.complete(null);
+            } else {
+                submit(partition, taskExecutor, taskDecorate).whenComplete(((unused, throwable) -> {
+                    try {
+                        if (throwable != null) {
+                            future.completeExceptionally(throwable);
+                        } else if (groupCollectMap.isExistAsync()) {
+                            Collection<CompletableFuture<Object>> asyncList = groupCollectMap.getAsyncList();
+                            ThreadSnapshotRunnable snapshotRunnable = new ThreadSnapshotRunnable(taskDecorate);
+                            CompletableFuture.allOf(asyncList.toArray(new CompletableFuture[asyncList.size()])).whenComplete(((unused1, asyncThrowable) -> {
+                                snapshotRunnable.replay(() -> {
+                                    if (asyncThrowable != null) {
+                                        future.completeExceptionally(asyncThrowable);
+                                    } else {
+                                        // 检查注入后的是否需要继续注入
+                                        autowiredAsyncNext(future, groupCollectMap, taskExecutor, taskDecorate);
+                                    }
+                                });
+                            }));
+                        } else {
+                            // 检查注入后的是否需要继续注入
+                            autowiredAsyncNext(future, groupCollectMap, taskExecutor, taskDecorate);
+                        }
+                    } catch (Throwable t) {
+                        future.completeExceptionally(t);
+                    }
+                }));
+            }
+        } catch (Throwable t) {
+            future.completeExceptionally(t);
         }
     }
 
@@ -327,7 +539,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException {
+    protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException, TimeoutException {
         if (batchAggregationPendingNonBlock) {
             if (PlatformDependentUtil.isProxyDubboProviderMethod(joinPoint)) {
                 ApacheDubboUtil.startAsync(pending);
@@ -336,7 +548,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 SpringWebUtil.setPendingRequestAttribute(pending);
             }
         } else {
-            pending.get();
+            pending.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -344,12 +556,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     }
 
-    protected void returnRunSync(JOIN_POINT joinPoint, Object result, GroupCollect<JOIN_POINT> groupCollectMap) {
-        autowired(groupCollectMap, taskExecutor, taskDecorate);
+    protected void returnRunSync(JOIN_POINT joinPoint, Object result, GroupCollect<JOIN_POINT> groupCollectMap) throws ExecutionException, InterruptedException, TimeoutException {
+        CompletableFuture<Void> future = autowired(groupCollectMap, taskExecutor, taskDecorate);
+        future.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);
     }
 
     protected void returnRunAsync(JOIN_POINT joinPoint, FieldCompletableFuture<Object> result, GroupCollect<JOIN_POINT> groupCollectMap) {
-        submit(() -> autowired(groupCollectMap, taskExecutor, taskDecorate), taskExecutor, taskDecorate).whenComplete(result.thenComplete());
+        CompletableFuture<Void> future = autowired(groupCollectMap, taskExecutor, taskDecorate);
+        future.whenComplete(result.thenComplete());
     }
 
     protected boolean isNeedPending(JOIN_POINT joinPoint, Object returnResult) {
@@ -386,16 +600,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             sneakyThrows(e);
         }
         return pending;
-    }
-
-    protected Future signalAll(Pending<JOIN_POINT>[] list) throws ExecutionException, InterruptedException, InvocationTargetException, IllegalAccessException {
-        if (list == null || list.length == 0) {
-            return null;
-        } else if (list.length == 1) {
-            return submit(list[0], taskExecutor, null);
-        } else {
-            return submit(PendingGroup.merge(list, this), taskExecutor, null);
-        }
     }
 
     public int getBatchAggregationPendingQueueCapacity() {
@@ -450,25 +654,11 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         throw cause;
     }
 
-    private void autowired(GroupCollect<JOIN_POINT> groupCollectMap, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
-        try {
-            Object next;
-            do {
-                // 拆分任务
-                List<AutowiredRunnable<JOIN_POINT>> runnableList = groupCollectMap.partition();
-                // 提交阻塞住任务
-                await(runnableList, taskExecutor, taskDecorate);
-
-                // 检查注入后的是否需要继续注入
-                next = groupCollectMap.next();
-                //收集返回值中的所有实体类
-                collectBean(next, groupCollectMap);
-            } while (!groupCollectMap.isEmpty());
-        } catch (Throwable e) {
-            sneakyThrows(e);
-        } finally {
-            groupCollectMap.close();
-        }
+    private CompletableFuture<Void> autowired(GroupCollect<JOIN_POINT> groupCollectMap, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        autowiredAsync(future, groupCollectMap, taskExecutor, taskDecorate);
+        future.whenComplete(((unused, throwable) -> groupCollectMap.close()));
+        return future;
     }
 
     private boolean isMultiple(Class type) {
@@ -818,6 +1008,42 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         this.batchAggregation = batchAggregation;
     }
 
+    public long getConcurrentThreadCount() {
+        return concurrentThreadCounter.sum();
+    }
+
+    public long getCurrentSubmitRunnableCount() {
+        return currentSubmitRunnableCounter.get();
+    }
+
+    public long getTotalSubmitRunnableCount() {
+        return totalSubmitRunnableCounter.sum();
+    }
+
+    public int getMaxRunnableConcurrentCount() {
+        return maxRunnableConcurrentCount;
+    }
+
+    public void setMaxRunnableConcurrentCount(int maxRunnableConcurrentCount) {
+        this.maxRunnableConcurrentCount = maxRunnableConcurrentCount;
+    }
+
+    public int getBlockGetterTimeoutMilliseconds() {
+        return blockGetterTimeoutMilliseconds;
+    }
+
+    public void setBlockGetterTimeoutMilliseconds(int blockGetterTimeoutMilliseconds) {
+        this.blockGetterTimeoutMilliseconds = blockGetterTimeoutMilliseconds;
+    }
+
+    public int getBatchAggregationMaxSignalConcurrentCount() {
+        return batchAggregationMaxSignalConcurrentCount;
+    }
+
+    public void setBatchAggregationMaxSignalConcurrentCount(int batchAggregationMaxSignalConcurrentCount) {
+        this.batchAggregationMaxSignalConcurrentCount = batchAggregationMaxSignalConcurrentCount;
+    }
+
     public long getBatchAggregationPollMilliseconds() {
         return batchAggregationPollMilliseconds;
     }
@@ -902,7 +1128,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         public AutowiredRunnable(ReturnFieldDispatchAop<JOIN_POINT> aop, JOIN_POINT joinPoint, Object result,
                                  int depth, List<CField> fieldList,
-                                 String consumerName, BiConsumer<JOIN_POINT, List<CField>> consumer, Runnable autowiredAfter) {
+                                 String consumerName, BiConsumer<JOIN_POINT, List<CField>> consumer, Runnable autowiredAfter) throws InterruptedException {
             this.aop = aop;
             this.joinPoint = joinPoint;
             this.result = result;
@@ -911,6 +1137,38 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             this.consumerName = consumerName;
             this.consumer = consumer;
             this.autowiredAfter = autowiredAfter;
+
+            // 获取 new AutowiredRunnable许可
+            acquire(aop);
+        }
+
+        private void release(ReturnFieldDispatchAop<JOIN_POINT> aop) {
+            aop.currentSubmitRunnableCounter.decrementAndGet();
+            try {
+                aop.autowiredRunnableLock.lock();
+                aop.autowiredRunnableCondition.signalAll();
+            } finally {
+                aop.autowiredRunnableLock.unlock();
+            }
+        }
+
+        private void acquire(ReturnFieldDispatchAop<JOIN_POINT> aop) throws InterruptedException {
+            AtomicInteger current = aop.currentSubmitRunnableCounter;
+            int max = aop.getMaxRunnableConcurrentCount();
+            int rCnt;
+            while (true) {
+                if ((rCnt = current.get()) > max) {
+                    try {
+                        aop.autowiredRunnableLock.lock();
+                        aop.autowiredRunnableCondition.await(100, TimeUnit.MILLISECONDS);
+                    } finally {
+                        aop.autowiredRunnableLock.unlock();
+                    }
+                } else if (current.compareAndSet(rCnt, rCnt + 1)) {
+                    aop.totalSubmitRunnableCounter.increment();
+                    break;
+                }
+            }
         }
 
         public ReturnFieldDispatchAop<JOIN_POINT> getAop() {
@@ -948,6 +1206,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             } catch (Exception e) {
                 aop.sneakyThrows(e);
             } finally {
+                release(aop);
                 autowiredAfter.run();
             }
         }
@@ -971,18 +1230,19 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static class GroupCollectMerge<JOIN_POINT> extends GroupCollect<JOIN_POINT> {
+    public static class MergeGroupCollect<JOIN_POINT> extends GroupCollect<JOIN_POINT> {
         private final Pending<JOIN_POINT>[] pendingList;
         private final List<PendingKey<JOIN_POINT>> pendingKeyList;
 
-        public GroupCollectMerge(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        public MergeGroupCollect(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             super(null, Stream.of(pendingList).map(e -> e.groupCollectMap.result).toArray(), aop);
             this.pendingList = pendingList;
             this.pendingKeyList = null;
 
             for (Pending<JOIN_POINT> pending : pendingList) {
                 for (Map.Entry<String, List<CField>> entry : pending.groupCollectMap.groupCollectMap.entrySet()) {
-                    groupCollectMap.computeIfAbsent(entry.getKey(), e -> newList(this))
+                    String beanName = entry.getKey();
+                    groupCollectMap.computeIfAbsent(beanName, e -> newList(this, beanName))
                             .addAll(entry.getValue());
                     completableFutureList.addAll(pending.groupCollectMap.completableFutureList);
                     visitObjectIdSet.add(objectId(pending.groupCollectMap.result));
@@ -992,7 +1252,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
-        public GroupCollectMerge(List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        public MergeGroupCollect(List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             super(null, pendingKeyList.stream().map(e -> e.pending).distinct().map(e -> e.groupCollectMap.result).toArray(), aop);
             this.pendingList = null;
             this.pendingKeyList = pendingKeyList;
@@ -1001,7 +1261,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             for (PendingKey<JOIN_POINT> pendingKey : pendingKeyList) {
                 List<CField> cFields = pendingKey.pending.groupCollectMap.groupCollectMap.get(pendingKey.beanName);
                 if (cFields != null) {
-                    groupCollectMap.computeIfAbsent(pendingKey.beanName, e -> newList(this))
+                    groupCollectMap.computeIfAbsent(pendingKey.beanName, e -> newList(this, pendingKey.beanName))
                             .addAll(cFields);
                 }
                 pendingSet.add(pendingKey.pending);
@@ -1031,7 +1291,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         protected final Map<String, BiConsumer<JOIN_POINT, List<CField>>> interceptCacheMap = new HashMap<>(5);
         protected final ReturnFieldDispatchAop<JOIN_POINT> aop;
 
-        protected final Map<Object, Map<Object, Object>> interceptQueryCacheMap = new HashMap<>(5);
+        protected final Map<String, ConcurrentHashMap<Object, Map<Object, Object>>> interceptLocalCacheMap = new ConcurrentHashMap<>(5);
+        protected final Map<String, ConcurrentHashMap<Object, CompletableFuture<Object>>> interceptAsyncMap = new ConcurrentHashMap<>(5);
         private final JOIN_POINT joinPoint;
         private final Object result;
         private final AtomicInteger partitionCounter = new AtomicInteger();
@@ -1046,8 +1307,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             this.aop = aop;
         }
 
-        static <JOIN_POINT> List<CField> newList(GroupCollect<JOIN_POINT> groupCollect) {
-            return new SplitCFieldList(groupCollect);
+        static <JOIN_POINT> List<CField> newList(GroupCollect<JOIN_POINT> groupCollect, String beanName) {
+            return new SplitCFieldList(groupCollect, beanName);
         }
 
         static Object objectId(Object object) {
@@ -1090,6 +1351,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return groupCollectMap.isEmpty();
         }
 
+        /**
+         * 获取消费者
+         * 单线程执行
+         */
         protected BiConsumer<JOIN_POINT, List<CField>> getConsumer(String beanName) {
             BiConsumer<JOIN_POINT, List<CField>> consumer = interceptCacheMap.computeIfAbsent(beanName, e -> aop.consumerFactory.apply(e));
             if (consumer == null) {
@@ -1098,32 +1363,101 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return consumer;
         }
 
-        protected Map<Object, Object> getConsumerQueryCache(Object cacheKey) {
-            return interceptQueryCacheMap.computeIfAbsent(cacheKey, e -> new HashMap<>(6));
+        /**
+         * 获取消费者的缓存
+         * 多线程执行
+         */
+        public Map<Object, Object> getLocalCache(String beanName, Object cacheKey) {
+            ConcurrentHashMap<Object, Map<Object, Object>> map = interceptLocalCacheMap.computeIfAbsent(beanName, e -> new ConcurrentHashMap<>(2));
+            return map.computeIfAbsent(cacheKey, e -> new ConcurrentHashMap<>(2));
+        }
+
+        /**
+         * 启动异步
+         * 多线程执行
+         */
+        public <T> CompletableFuture<T> startAsync(String beanName, Object cacheKey) {
+            ConcurrentHashMap<Object, CompletableFuture<Object>> map = interceptAsyncMap.computeIfAbsent(beanName, e -> new ConcurrentHashMap<>(2));
+            return (CompletableFuture<T>) map.computeIfAbsent(cacheKey, e -> new CompletableFuture<>());
+        }
+
+        /**
+         * 获取异步
+         * 多线程执行
+         */
+        public <T> CompletableFuture<T> getAsync(String beanName, Object cacheKey) {
+            ConcurrentHashMap<Object, CompletableFuture<Object>> map = interceptAsyncMap.get(beanName);
+            if (map == null) {
+                return null;
+            } else {
+                return (CompletableFuture<T>) map.get(cacheKey);
+            }
+        }
+
+        public void setAsync(String beanName, Object cacheKey, CompletableFuture future) {
+            ConcurrentHashMap<Object, CompletableFuture<Object>> map = interceptAsyncMap.computeIfAbsent(beanName, e -> new ConcurrentHashMap<>(2));
+            map.put(cacheKey, future);
+        }
+
+        public boolean isExistAsync() {
+            if (interceptAsyncMap.isEmpty()) {
+                return false;
+            }
+            for (ConcurrentHashMap<Object, CompletableFuture<Object>> cache : interceptAsyncMap.values()) {
+                for (CompletableFuture<Object> future : cache.values()) {
+                    if (!future.isDone()) {
+                        return true;
+                    }
+                }
+            }
+            return true;
+        }
+
+        public Collection<CompletableFuture<Object>> getAsyncList() {
+            List<CompletableFuture<Object>> list = new ArrayList<>(6);
+            for (ConcurrentHashMap<Object, CompletableFuture<Object>> cache : interceptAsyncMap.values()) {
+                for (CompletableFuture<Object> future : cache.values()) {
+                    if (!future.isDone()) {
+                        list.add(future);
+                    }
+                }
+            }
+            return list;
         }
 
         /**
          * 添加收集到的字段
+         * 单线程执行
          */
         private void addField(String consumerName, BeanMap beanHandler, Field field,
                               Annotation annotation) {
             CField cField = new CField(consumerName, beanHandler, field, annotation, aop.configurableEnvironment);
-            groupCollectMap.computeIfAbsent(consumerName, e -> newList(this))
+            groupCollectMap.computeIfAbsent(consumerName, e -> newList(this, consumerName))
                     .add(cField);
         }
 
+        /**
+         * 添加收集到的异步字段
+         * 单线程执行
+         */
         private void addFuture(FieldCompletableFuture<?> bean) {
             completableFutureList.add(bean);
         }
 
-        private List<AutowiredRunnable<JOIN_POINT>> partition() {
+        /**
+         * 分配任务
+         * 单线程执行
+         */
+        private List<AutowiredRunnable<JOIN_POINT>> partition() throws InterruptedException {
             if (partition == null) {
                 //  通知实现
                 List<AutowiredRunnable<JOIN_POINT>> partition = new ArrayList<>(groupCollectMap.size());
                 for (Map.Entry<String, List<CField>> entry : groupCollectMap.entrySet()) {
                     String beanName = entry.getKey();
                     BiConsumer<JOIN_POINT, List<CField>> consumer = getConsumer(beanName);
+
                     partition.add(new AutowiredRunnable<>(aop, joinPoint, result, depth, entry.getValue(), beanName, consumer, () -> {
+                        // 全部任务执行完成了
                         if (partitionCounter.decrementAndGet() == 0) {
                             this.partition = null;
                             resolvePlaceholders();
@@ -1136,6 +1470,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return partition;
         }
 
+        public int getPartitionCount() {
+            return partitionCounter.get();
+        }
+
+        /**
+         * 解析填写的表达式
+         * 单线程执行
+         */
         private void resolvePlaceholders() {
             for (List<CField> cFieldList : groupCollectMap.values()) {
                 for (CField cField : cFieldList) {
@@ -1156,6 +1498,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return groupCollectMap.get(beanName);
         }
 
+        /**
+         * 收集后回掉
+         * 单线程执行
+         */
         private void collectAfter() {
             for (Map.Entry<String, BiConsumer<JOIN_POINT, List<CField>>> entry : interceptCacheMap.entrySet()) {
                 Object intercept;
@@ -1171,6 +1517,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
+        /**
+         * 检查注入后的是否需要继续注入
+         * 单线程执行
+         */
         private List<Object> next() {
             for (Map.Entry<String, BiConsumer<JOIN_POINT, List<CField>>> entry : interceptCacheMap.entrySet()) {
                 Object intercept;
@@ -1201,13 +1551,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             return next;
         }
 
+        /**
+         * 销毁
+         * 单线程执行
+         */
         private void destroy() {
             // call gc
             groupCollectMap.clear();
             visitObjectIdSet.clear();
             completableFutureList.clear();
             interceptCacheMap.clear();
-            interceptQueryCacheMap.clear();
+            interceptLocalCacheMap.clear();
         }
 
         private void close() {
@@ -1243,165 +1597,91 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static class PendingGroup<JOIN_POINT> implements Runnable {
-        private final List<PendingKey<JOIN_POINT>> pendingKeyList;
+    public static class AllMergePendingRunnable<JOIN_POINT> implements Runnable {
         private final Pending<JOIN_POINT>[] pendingList;
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
-        private final Object groupKey;
+        private final MergeGroupCollect<JOIN_POINT> groupCollectMap;
 
-        public PendingGroup(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+        public AllMergePendingRunnable(Pending<JOIN_POINT>[] pendingList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.pendingList = pendingList;
-            this.pendingKeyList = null;
-            this.groupKey = null;
             this.aop = aop;
-        }
-
-        public PendingGroup(Object groupKey, List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
-            this.pendingList = null;
-            this.pendingKeyList = pendingKeyList;
-            this.groupKey = groupKey;
-            this.aop = aop;
-        }
-
-        private static <JOIN_POINT> Object replayGroupBy(String beanName, BiConsumer<JOIN_POINT, List<CField>> consumer, Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings, ReturnFieldDispatchAop<JOIN_POINT> aop) {
-            StaticMethodAccessor staticMethodAccessor = getStaticMethodAccessor(beanName);
-            GroupCollect<JOIN_POINT> groupCollectMap = pending.groupCollectMap;
-            if (staticMethodAccessor != null) {
-                Object[] objects = new Object[1];
-                pending.snapshotGroupKeyRunnable.replay(() -> {
-                    try {
-                        objects[0] = staticMethodAccessor.invoke(getParameterValues(staticMethodAccessor.getParameterTypes(), staticMethodAccessor.getParameterNames(), beanName, consumer, groupCollectMap.joinPoint, groupCollectMap.result, groupCollectMap, pending, pendings, aop));
-                    } catch (InvocationTargetException | IllegalAccessException e) {
-                        aop.sneakyThrows(e);
-                    }
-                });
-                return objects[0] == null ? "" : objects[0];
-            } else {
-                return "";
-            }
-        }
-
-        public static <JOIN_POINT> Object[] getParameterValues(Class<?>[] parameterTypes, String[] parameterNames,
-                                                               String beanName, BiConsumer<?, List<CField>> consumer, Object joinPoint,
-                                                               Object result, ReturnFieldDispatchAop.GroupCollect<JOIN_POINT> groupCollect,
-                                                               ReturnFieldDispatchAop.Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings,
-                                                               ReturnFieldDispatchAop<JOIN_POINT> aop) throws InvocationTargetException, IllegalAccessException {
-            Object[] args = new Object[parameterTypes.length];
-            for (int i = 0; i < parameterTypes.length; i++) {
-                Class<?> parameterType = parameterTypes[i];
-                String parameterName = parameterNames == null ? null : parameterNames[i];
-
-                Object arg;
-                if ("result".equalsIgnoreCase(parameterName) && parameterType.isAssignableFrom(result.getClass())) {
-                    arg = result;
-                } else if (parameterType == String.class) {
-                    arg = beanName;
-                } else if (parameterType == Object.class) {
-                    if ("result".equalsIgnoreCase(parameterName)) {
-                        arg = result;
-                    } else if ("joinPoint".equalsIgnoreCase(parameterName) || "point".equalsIgnoreCase(parameterName)) {
-                        arg = joinPoint;
-                    } else {
-                        arg = result;
-                    }
-                } else if (parameterType == Pending[].class) {
-                    arg = pendings;
-                } else if (parameterType.isAssignableFrom(consumer.getClass())) {
-                    arg = consumer;
-                } else if (parameterType.isAssignableFrom(pending.getClass())) {
-                    arg = pending;
-                } else if (parameterType.isAssignableFrom(groupCollect.getClass())) {
-                    arg = groupCollect;
-                } else if (parameterType.isAssignableFrom(aop.getClass())) {
-                    arg = aop;
-                } else if (joinPoint != null && parameterType.isAssignableFrom(joinPoint.getClass())) {
-                    arg = joinPoint;
-                } else if (parameterType.isAssignableFrom(result.getClass())) {
-                    arg = result;
-                } else {
-                    arg = null;
-                }
-                args[i] = arg;
-            }
-            return args;
-        }
-
-        protected static <JOIN_POINT> List<PendingGroup<JOIN_POINT>> merge(Pending<JOIN_POINT>[] pendings, ReturnFieldDispatchAop<JOIN_POINT> aop) {
-            Map<Object, List<PendingKey<JOIN_POINT>>> groupByMap = new HashMap<>();
-            for (Pending<JOIN_POINT> pending : pendings) {
-                for (Map.Entry<String, List<CField>> entry : pending.groupCollectMap.groupCollectMap.entrySet()) {
-                    String beanName = entry.getKey();
-                    BiConsumer<JOIN_POINT, List<CField>> consumer = pending.groupCollectMap.getConsumer(beanName);
-
-                    Object groupKey = replayGroupBy(beanName, consumer, pending, pendings, aop);
-                    groupByMap.computeIfAbsent(groupKey, e -> new ArrayList<>())
-                            .add(new PendingKey<>(groupKey, beanName, consumer, pending, aop));
-                }
-            }
-
-            int size = groupByMap.size();
-            if (size > 1) {
-                List<PendingGroup<JOIN_POINT>> list = new ArrayList<>(size);
-                for (Map.Entry<Object, List<PendingKey<JOIN_POINT>>> entry : groupByMap.entrySet()) {
-                    list.add(new PendingGroup<>(entry.getKey(), entry.getValue(), aop));
-                }
-                return list;
-            } else {
-                return Collections.singletonList(new PendingGroup<>(pendings, aop));
-            }
-        }
-
-        @Override
-        public String toString() {
-            return "PendingGroup{" +
-                    "groupKey=" + groupKey +
-                    ", size=" + (pendingKeyList != null ? pendingKeyList.size() : pendingList != null ? pendingList.length : 0) +
-                    '}';
+            this.groupCollectMap = new MergeGroupCollect<>(pendingList, aop);
         }
 
         @Override
         public void run() {
-            if (pendingList != null) {
-                Pending<JOIN_POINT> pending0 = pendingList[0];
-                pending0.snapshotRunnable.replay(() -> {
-                    try {
-                        aop.autowired(new GroupCollectMerge<>(pendingList, aop), aop.taskExecutor, aop.taskDecorate);
-                    } catch (Exception e) {
-                        aop.sneakyThrows(e);
-                    } finally {
+            Pending<JOIN_POINT> pending0 = pendingList[0];
+            pending0.snapshotRunnable.replay(() -> {
+                CompletableFuture<Void> future = aop.autowired(groupCollectMap, aop.taskExecutor, aop.taskDecorate);
+                future.whenComplete(((unused, throwable) -> {
+                    if (throwable != null) {
+                        for (Pending<JOIN_POINT> pending : pendingList) {
+                            pending.completeExceptionally(throwable);
+                        }
+                    } else {
                         for (Pending<JOIN_POINT> pending : pendingList) {
                             pending.complete();
                         }
                     }
-                });
-            } else if (pendingKeyList != null) {
-                PendingKey<JOIN_POINT> pendingKey0 = pendingKeyList.get(0);
-                int size = pendingKeyList.size();
-                if (size == 1) {
-                    pendingKey0.pending.run();
-                } else {
-                    pendingKey0.pending.snapshotRunnable.replay(() -> {
-                        try {
-                            aop.autowired(new GroupCollectMerge<>(pendingKeyList, aop), aop.taskExecutor, aop.taskDecorate);
-                        } catch (Exception e) {
-                            aop.sneakyThrows(e);
-                        } finally {
-                            for (PendingKey<JOIN_POINT> pendingKey : pendingKeyList) {
-                                pendingKey.pending.complete();
-                            }
+                }));
+            });
+        }
+
+        @Override
+        public String toString() {
+            return "AllMergePendingRunnable{" +
+                    "size=" + pendingList.length +
+                    '}';
+        }
+    }
+
+    public static class PartMergePendingRunnable<JOIN_POINT> implements Runnable {
+        private final Object groupKey;
+        private final List<PendingKey<JOIN_POINT>> pendingKeyList;
+        private final ReturnFieldDispatchAop<JOIN_POINT> aop;
+        private final MergeGroupCollect<JOIN_POINT> groupCollectMap;
+
+        public PartMergePendingRunnable(Object groupKey, List<PendingKey<JOIN_POINT>> pendingKeyList, ReturnFieldDispatchAop<JOIN_POINT> aop) {
+            this.pendingKeyList = pendingKeyList;
+            this.groupKey = groupKey;
+            this.aop = aop;
+            this.groupCollectMap = new MergeGroupCollect<>(pendingKeyList, aop);
+        }
+
+        @Override
+        public void run() {
+            PendingKey<JOIN_POINT> pendingKey0 = pendingKeyList.get(0);
+            pendingKey0.pending.snapshotRunnable.replay(() -> {
+                CompletableFuture<Void> future = aop.autowired(groupCollectMap, aop.taskExecutor, aop.taskDecorate);
+                future.whenComplete(((unused, throwable) -> {
+                    if (throwable != null) {
+                        for (PendingKey<JOIN_POINT> pendingKey : pendingKeyList) {
+                            pendingKey.pending.completeExceptionally(throwable);
                         }
-                    });
-                }
-            }
+                    } else {
+                        for (PendingKey<JOIN_POINT> pendingKey : pendingKeyList) {
+                            pendingKey.pending.complete();
+                        }
+                    }
+                }));
+            });
+        }
+
+        @Override
+        public String toString() {
+            return "PartMergePendingRunnable{" +
+                    "groupKey=" + groupKey +
+                    ", size=" + pendingKeyList.size() +
+                    '}';
         }
     }
 
     private static class PendingKey<JOIN_POINT> {
-        Object groupKey;
-        String beanName;
-        BiConsumer<JOIN_POINT, List<CField>> consumer;
-        Pending<JOIN_POINT> pending;
-        ReturnFieldDispatchAop<JOIN_POINT> aop;
+        private final Object groupKey;
+        private final String beanName;
+        private final Pending<JOIN_POINT> pending;
+        private final BiConsumer<JOIN_POINT, List<CField>> consumer;
+        private final ReturnFieldDispatchAop<JOIN_POINT> aop;
 
         private PendingKey(Object groupKey, String beanName, BiConsumer<JOIN_POINT, List<CField>> consumer, Pending<JOIN_POINT> pending, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.groupKey = groupKey;
@@ -1444,13 +1724,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         @Override
         public void run() {
             snapshotRunnable.replay(() -> {
-                try {
-                    groupCollectMap.aop.autowired(groupCollectMap, groupCollectMap.aop.taskExecutor, groupCollectMap.aop.taskDecorate);
-                } catch (Exception e) {
-                    groupCollectMap.aop.sneakyThrows(e);
-                } finally {
-                    complete();
-                }
+                CompletableFuture<Void> future = groupCollectMap.aop.autowired(groupCollectMap, groupCollectMap.aop.taskExecutor, groupCollectMap.aop.taskDecorate);
+                future.whenComplete((unused, throwable) -> {
+                    if (throwable != null) {
+                        Pending.this.completeExceptionally(throwable);
+                    } else {
+                        Pending.this.complete();
+                    }
+                });
             });
         }
     }
@@ -1478,6 +1759,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public static class PendingSignalThread<JOIN_POINT> extends Thread {
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
         private final ArrayList<Pending<JOIN_POINT>> pollList;
+        // 当前信号数量
+        private final LongAdder currentSignalCounter = new LongAdder();
+        // 总共信号数量
+        private final LongAdder totalSignalCounter = new LongAdder();
+        private final Lock lock = new ReentrantLock();
+        private final Condition condition = lock.newCondition();
 
         public PendingSignalThread(ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.aop = aop;
@@ -1488,21 +1775,55 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         @Override
         public void run() {
-            while (true) {
+            while (!isInterrupted()) {
                 try {
                     int min = aop.getBatchAggregationPollMinSize();
                     int max = aop.getBatchAggregationPollMaxSize();
                     aop.pollPending(pollList, Math.min(min, max), Math.max(min, max), aop.getBatchAggregationPollMilliseconds());
+                    if (pollList.isEmpty()) {
+                        Thread.sleep(1);
+                    } else {
+                        currentSignalCounter.increment();
+                        totalSignalCounter.increment();
+                        Pending<JOIN_POINT>[] pendings = pollList.toArray(new Pending[pollList.size()]);
+                        pollList.clear();
+                        try {
+                            if (pendings.length == 1) {
+                                pendings[0].run();
+                            } else {
+                                List<Runnable> runnableList = groupByMerge(pendings, aop);
+                                for (Runnable runnable : runnableList) {
+                                    runnable.run();
+                                }
+                            }
+                        } finally {
+                            CompletableFuture.allOf(pendings).whenComplete((unused, throwable) -> {
+                                currentSignalCounter.decrement();
+                                if (throwable != null) {
+                                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "collectAndAutowired Throwable error = {}", throwable, throwable);
+                                }
+                                try {
+                                    lock.lock();
+                                    condition.signalAll();
+                                } finally {
+                                    lock.unlock();
+                                }
+                            });
+                        }
 
-                    Pending<JOIN_POINT>[] pendings = pollList.toArray(new Pending[pollList.size()]);
-                    pollList.clear();
-                    aop.signalAll(pendings);
+                        while (currentSignalCounter.sum() > aop.getBatchAggregationMaxSignalConcurrentCount()) {
+                            try {
+                                lock.lock();
+                                condition.await(10, TimeUnit.MILLISECONDS);
+                            } finally {
+                                lock.unlock();
+                            }
+                        }
+                    }
                 } catch (InterruptedException e) {
                     return;
-                } catch (ExecutionException | InvocationTargetException | IllegalAccessException e) {
-                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "collectAndAutowired Execution error = {}", e, e);
                 } catch (Throwable e) {
-                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "collectAndAutowired Throwable error = {}", e, e);
+                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "PendingSignal Throwable error = {}", e, e);
                 }
             }
         }
@@ -1539,24 +1860,31 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     public static class SplitCFieldList extends ArrayList<CField> {
         private transient final AtomicBoolean parseFlag = new AtomicBoolean();
-        private transient GroupCollect<?> groupCollect;
+        private transient final GroupCollect<?> groupCollect;
+        private transient final String beanName;
         private transient List<CField> keyNameFieldList;
         private transient List<CField> keyValueFieldList;
 
         public SplitCFieldList(List<CField> fieldList) {
             super(fieldList);
+            this.groupCollect = null;
+            this.beanName = null;
         }
 
         public SplitCFieldList() {
+            this.groupCollect = null;
+            this.beanName = null;
         }
 
-        public SplitCFieldList(GroupCollect<?> groupCollect) {
+        public SplitCFieldList(GroupCollect<?> groupCollect, String beanName) {
             this.groupCollect = groupCollect;
+            this.beanName = beanName;
         }
 
         public SplitCFieldList(GroupCollect<?> groupCollect, int size) {
             super(size);
             this.groupCollect = groupCollect;
+            this.beanName = null;
         }
 
         private static boolean isString(CField field) {

@@ -7,6 +7,7 @@ import com.github.fieldintercept.util.TypeUtil;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 /**
@@ -63,16 +64,24 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         }
 
         Map<KEY, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
-        if (nameMap == null || nameMap.isEmpty()) {
-            return;
+        CompletableFuture<Map<KEY, Object>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
+        if (future != null) {
+            ReturnFieldDispatchAop.setAsync(cFields, this, future.thenAccept((result -> {
+                if (result != null) {
+                    nameMap.putAll(result);
+                }
+                if (!nameMap.isEmpty()) {
+                    setProperty(cFields, nameMap);
+                }
+            })));
+        } else if (!nameMap.isEmpty()) {
+            setProperty(cFields, nameMap);
         }
-
-        setProperty(cFields, nameMap);
     }
 
-    public Map<KEY, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<KEY> keys) {
+    private Map<KEY, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<KEY> keys) {
         Map<KEY, Object> valueMap = new LinkedHashMap<>();
-        Map<KEY, Object> currentLocalCache = ReturnFieldDispatchAop.getCurrentLocalCache(cFields, this);
+        Map<KEY, Object> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
         for (KEY key : keys) {
             Object value = currentLocalCache.get(key);
             if (value != null) {
@@ -90,10 +99,12 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
 
         // 查库与缓存数据合并
         Map<KEY, ?> loadValueMap = selectObjectMapByKeys(cFields, remainingCacheMissKeys);
-        valueMap.putAll(loadValueMap);
+        if (loadValueMap != null) {
+            valueMap.putAll(loadValueMap);
 
-        // 放入缓存
-        currentLocalCache.putAll(loadValueMap);
+            // 放入缓存
+            currentLocalCache.putAll(loadValueMap);
+        }
         return valueMap;
     }
 

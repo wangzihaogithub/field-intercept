@@ -7,6 +7,7 @@ import com.github.fieldintercept.util.TypeUtil;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -29,8 +30,8 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
         this(keyClass, null);
     }
 
-    public KeyValueFieldIntercept(Class<KEY> keyClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
-        this(keyClass, null, selectValueMapByKeys);
+    public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass) {
+        this(keyClass, valueClass, null);
     }
 
     public KeyValueFieldIntercept(Class<KEY> keyClass, Class<VALUE> valueClass, Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
@@ -77,15 +78,25 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
             return;
         }
         Map<KEY, VALUE> valueMap = cacheSelectValueMapByKeys(cFields, keyDataList);
-        if (valueMap == null || valueMap.isEmpty()) {
-            return;
+
+        CompletableFuture<Map<KEY, VALUE>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
+        if (future != null) {
+            ReturnFieldDispatchAop.setAsync(cFields, this, future.thenAccept((result -> {
+                if (result != null) {
+                    valueMap.putAll(result);
+                }
+                if (!valueMap.isEmpty()) {
+                    setProperty(cFields, valueMap);
+                }
+            })));
+        } else if (!valueMap.isEmpty()) {
+            setProperty(cFields, valueMap);
         }
-        setProperty(cFields, valueMap);
     }
 
     private Map<KEY, VALUE> cacheSelectValueMapByKeys(List<CField> cFields, Set<KEY> keys) {
         Map<KEY, VALUE> valueMap = new LinkedHashMap<>();
-        Map<KEY, VALUE> currentLocalCache = ReturnFieldDispatchAop.getCurrentLocalCache(cFields, this);
+        Map<KEY, VALUE> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
         for (KEY key : keys) {
             VALUE value = currentLocalCache.get(key);
             if (value != null) {
@@ -103,10 +114,12 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
 
         // 查库与缓存数据合并
         Map<KEY, VALUE> loadValueMap = selectValueMapByKeys(cFields, remainingCacheMissKeys);
-        valueMap.putAll(loadValueMap);
+        if (loadValueMap != null) {
+            valueMap.putAll(loadValueMap);
 
-        // 放入缓存
-        currentLocalCache.putAll(loadValueMap);
+            // 放入缓存
+            currentLocalCache.putAll(loadValueMap);
+        }
         return valueMap;
     }
 

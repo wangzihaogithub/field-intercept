@@ -37,6 +37,14 @@ public class FieldinterceptProperties {
      */
     private String[] beanBasePackages = {};
     /**
+     * 如果超过这个数量，就会阻塞调用方(业务代码)继续生产自动注入任务。阻塞创建AutowiredRunnable，创建不出来就提交不到线程池里
+     */
+    private int maxRunnableConcurrentCount = Integer.MAX_VALUE;
+    /**
+     * 自动注入同步调用时的超时时间
+     */
+    private int blockGetterTimeoutMilliseconds = 10_000;
+    /**
      * 切面对象
      */
     private Class<? extends ReturnFieldDispatchAop> aopClass = AspectjReturnFieldDispatchAop.class;
@@ -92,6 +100,22 @@ public class FieldinterceptProperties {
 
     public void setMyAnnotations(Class<? extends Annotation>[] myAnnotations) {
         this.myAnnotations = myAnnotations;
+    }
+
+    public int getBlockGetterTimeoutMilliseconds() {
+        return blockGetterTimeoutMilliseconds;
+    }
+
+    public void setBlockGetterTimeoutMilliseconds(int blockGetterTimeoutMilliseconds) {
+        this.blockGetterTimeoutMilliseconds = blockGetterTimeoutMilliseconds;
+    }
+
+    public int getMaxRunnableConcurrentCount() {
+        return maxRunnableConcurrentCount;
+    }
+
+    public void setMaxRunnableConcurrentCount(int maxRunnableConcurrentCount) {
+        this.maxRunnableConcurrentCount = maxRunnableConcurrentCount;
     }
 
     public enum BatchAggregationEnum {
@@ -178,18 +202,37 @@ public class FieldinterceptProperties {
 
         /**
          * 攒多个并发请求的等待时间（毫秒） 将N毫秒内的所有线程聚合到一起查询
+         * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
          */
-        private long pollMilliseconds = 10L;
+        private long pollMilliseconds = 50L;
+        /**
+         * 最少聚合个数
+         * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
+         */
         private int pollMinSize = 1;
+        /**
+         * 最大聚合个数
+         * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
+         */
         private int pollMaxSize = 1000;
         /**
-         * 超过这个并发请求的数量后，才开始攒批。 否则立即执行
+         * 控制批量聚合信号（发车）最大并发量，如果超过这个并发量，并且超过了队列长度(pendingQueueCapacity)，则会阻塞调用方(业务代码)继续生产自动注入任务。
+         * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
+         */
+        private int maxSignalConcurrentCount = 10000;
+        /**
+         * 聚合阻塞队列容量
+         * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
+         */
+        private int pendingQueueCapacity = 10000;
+        /**
+         * 并发量小于这个数，直接走同步代码逻辑。
+         * 超过这个并发请求的数量后，才开始聚合攒批。 否则立即执行
          * 攒批的并发量最低要求
          */
         private int thresholdMinConcurrentCount = 1;
-        private int pendingQueueCapacity = 10000;
         /**
-         * 是否使用非阻塞（dubbo转异步，spring-web转异步）
+         * 打上ReturnFieldAop注解的方法，是否使用非阻塞返回（dubbo-server接口转异步，spring-web-server接口转异步）
          */
         private boolean pendingNonBlock = true;
 
@@ -247,6 +290,14 @@ public class FieldinterceptProperties {
 
         public void setPendingQueueCapacity(int pendingQueueCapacity) {
             this.pendingQueueCapacity = pendingQueueCapacity;
+        }
+
+        public int getMaxSignalConcurrentCount() {
+            return maxSignalConcurrentCount;
+        }
+
+        public void setMaxSignalConcurrentCount(int maxSignalConcurrentCount) {
+            this.maxSignalConcurrentCount = maxSignalConcurrentCount;
         }
     }
 
@@ -318,6 +369,11 @@ public class FieldinterceptProperties {
          */
         private Integer timeout;
         /**
+         * Whether to async
+         * note that: it is an unreliable asynchronism that ignores return values and does not block threads.
+         */
+        private Boolean async = true;
+        /**
          * Check if service provider exists, if not exists, it will be fast fail
          */
         private boolean check = false;
@@ -344,6 +400,14 @@ public class FieldinterceptProperties {
          * Maximum connections service provider can accept, default value is 0 - connection is shared
          */
         private Integer connections;
+
+        public Boolean getAsync() {
+            return async;
+        }
+
+        public void setAsync(Boolean async) {
+            this.async = async;
+        }
 
         public boolean isCheck() {
             return check;

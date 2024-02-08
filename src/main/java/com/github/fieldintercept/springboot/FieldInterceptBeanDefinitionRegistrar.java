@@ -49,6 +49,14 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected ListableBeanFactory beanFactory;
     protected Environment environment;
     protected BeanDefinitionRegistry definitionRegistry;
+    /**
+     * 如果超过这个数量，就会阻塞调用方(业务代码)继续生产自动注入任务。阻塞创建AutowiredRunnable，创建不出来就提交不到线程池里
+     */
+    private int maxRunnableConcurrentCount;
+    /**
+     * 自动注入同步调用时的超时时间
+     */
+    private int blockGetterTimeoutMilliseconds;
     private Supplier<FieldinterceptProperties> propertiesSupplier;
 
     @Override
@@ -97,7 +105,11 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
         initProperties();
+
         aop.setConsumerFactory(consumerFactory());
+        aop.setBlockGetterTimeoutMilliseconds(blockGetterTimeoutMilliseconds);
+        aop.setMaxRunnableConcurrentCount(maxRunnableConcurrentCount);
+
         aop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.valueOf(batchAggregation.getEnabled().name()));
         aop.setBatchAggregationPollMilliseconds(batchAggregation.getPollMilliseconds());
         aop.setBatchAggregationThresholdMinConcurrentCount(batchAggregation.getThresholdMinConcurrentCount());
@@ -105,6 +117,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         aop.setBatchAggregationPollMinSize(batchAggregation.getPollMinSize());
         aop.setBatchAggregationPendingQueueCapacity(batchAggregation.getPendingQueueCapacity());
         aop.setBatchAggregationPendingNonBlock(batchAggregation.isPendingNonBlock());
+        aop.setBatchAggregationMaxSignalConcurrentCount(batchAggregation.getMaxSignalConcurrentCount());
 
         // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {
@@ -265,6 +278,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         this.myAnnotations = properties.getMyAnnotations();
         this.aopClass = properties.getAopClass();
         this.enabled = properties.isEnabled();
+        this.blockGetterTimeoutMilliseconds = properties.getBlockGetterTimeoutMilliseconds();
+        this.maxRunnableConcurrentCount = properties.getMaxRunnableConcurrentCount();
     }
 
     @Override

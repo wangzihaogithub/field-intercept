@@ -12,16 +12,12 @@ public class SpringWebUtil {
     public static final String ATTR_NAME_PENDING_PROXY = "fieldintercept.pending.isControllerProxyMethod";
     public static final String ATTR_NAME_PENDING = "fieldintercept.pending";
 
-    public static boolean requestAttributeIsControllerProxyMethod(Object request0) {
-        HttpServletRequest request;
-        if (request0 instanceof HttpServletRequest) {
-            request = (HttpServletRequest) request0;
-        } else {
-            request = getCurrentRequest();
-        }
+    public static boolean requestAttributeIsControllerProxyMethod() {
+        HttpServletRequest request = getCurrentRequest();
         if (request != null) {
             Object attribute = request.getAttribute(ATTR_NAME_PENDING_PROXY);
             if (attribute instanceof Boolean) {
+                request.removeAttribute(ATTR_NAME_PENDING_PROXY);
                 return (boolean) attribute;
             }
         }
@@ -38,13 +34,8 @@ public class SpringWebUtil {
         }
     }
 
-    public static <JOIN_POINT> ReturnFieldDispatchAop.Pending<JOIN_POINT> getPendingRequestAttribute(Object request0) {
-        HttpServletRequest request;
-        if (request0 instanceof HttpServletRequest) {
-            request = (HttpServletRequest) request0;
-        } else {
-            request = getCurrentRequest();
-        }
+    public static <JOIN_POINT> ReturnFieldDispatchAop.Pending<JOIN_POINT> getPendingRequestAttribute() {
+        HttpServletRequest request = getCurrentRequest();
         if (request != null) {
             Object attribute = request.getAttribute(ATTR_NAME_PENDING);
             if (attribute instanceof ReturnFieldDispatchAop.Pending) {

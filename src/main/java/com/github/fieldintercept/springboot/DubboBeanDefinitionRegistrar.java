@@ -3,6 +3,7 @@ package com.github.fieldintercept.springboot;
 import com.github.fieldintercept.*;
 import com.github.fieldintercept.annotation.ServiceOptions;
 import com.github.fieldintercept.util.AnnotationUtil;
+import com.github.fieldintercept.util.PlatformDependentUtil;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.config.ReferenceConfig;
@@ -10,6 +11,7 @@ import org.apache.dubbo.config.ServiceConfig;
 import org.apache.dubbo.config.spring.ServiceBean;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
+import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.cluster.LoadBalance;
 import org.apache.dubbo.rpc.cluster.loadbalance.ShortestResponseLoadBalance;
@@ -26,6 +28,7 @@ import org.springframework.core.type.AnnotationMetadata;
 
 import java.beans.Introspector;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
@@ -122,6 +125,9 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
         }
         reference.setInterface(Api.class);
         reference.setId(id("reference", dubbo.getVersion()));
+        if (dubbo.getAsync() != null) {
+            reference.setAsync(dubbo.getAsync());
+        }
 
         String ignoreLocalFieldIntercept = "ignoreLocalFieldIntercept";
         reference.setLoadbalance(ignoreLocalFieldIntercept);
@@ -475,22 +481,52 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
         private static class DubboCompositeFieldIntercept<JOIN_POINT> implements CompositeFieldIntercept<Object, Object, JOIN_POINT> {
             private final String beanName;
             private final ReferenceConfig<Api> reference;
-            private final KeyNameFieldIntercept<Object, JOIN_POINT> keyNameFieldIntercept = new KeyNameFieldIntercept<>(Object.class, this::selectNameMapByKeys);
-            private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<>(Object.class, Object.class, this::selectValueMapByKeys);
+            private final KeyNameFieldIntercept<Object, JOIN_POINT> keyNameFieldIntercept = new KeyNameFieldIntercept<Object, JOIN_POINT>(Object.class) {
+                @Override
+                public Map<Object, ?> selectObjectMapByKeys(List<CField> cFields, Collection<Object> keys) {
+                    Api api = reference.get();
+                    Map<Object, ?> result = api.selectNameMapByKeys(beanName, keys);
+                    return convertAsyncIfNeed(result, cFields, this);
+                }
+            };
+            private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<Object, Object, JOIN_POINT>(Object.class, Object.class) {
+                @Override
+                public Map<Object, Object> selectValueMapByKeys(List<CField> cFields, Collection<Object> keys) {
+                    Api api = reference.get();
+                    Map<Object, Object> result = api.selectValueMapByKeys(beanName, keys);
+                    return convertAsyncIfNeed(result, cFields, this);
+                }
+            };
 
             private DubboCompositeFieldIntercept(String beanName, ReferenceConfig<Api> reference) {
                 this.beanName = beanName;
                 this.reference = reference;
             }
 
-            public Map<Object, Object> selectNameMapByKeys(Collection<Object> keys) {
-                Api api = reference.get();
-                return api.selectNameMapByKeys(beanName, keys);
-            }
-
-            public Map<Object, Object> selectValueMapByKeys(Collection<Object> keys) {
-                Api api = reference.get();
-                return api.selectValueMapByKeys(beanName, keys);
+            private <T> T convertAsyncIfNeed(T result, List<CField> cFields, Object cacheKey) {
+                if (Boolean.TRUE.equals(reference.isAsync())) {
+                    CompletableFuture<T> dubboFuture = RpcContext.getContext().getCompletableFuture();
+                    CompletableFuture<T> future = ReturnFieldDispatchAop.startAsync(cFields, cacheKey);
+                    if (future == null) {
+                        try {
+                            return dubboFuture.get();
+                        } catch (Exception e) {
+                            PlatformDependentUtil.sneakyThrows(e);
+                            return null;
+                        }
+                    } else {
+                        dubboFuture.whenComplete(((r, throwable) -> {
+                            if (throwable != null) {
+                                future.completeExceptionally(throwable);
+                            } else {
+                                future.complete(r);
+                            }
+                        }));
+                        return result;
+                    }
+                } else {
+                    return result;
+                }
             }
 
             @Override
