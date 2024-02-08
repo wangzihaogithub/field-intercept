@@ -43,7 +43,7 @@ public class FieldinterceptProperties {
     /**
      * 自动注入同步调用时的超时时间
      */
-    private int blockGetterTimeoutMilliseconds = 10_000;
+    private int blockGetterTimeoutMilliseconds = 30_000;
     /**
      * 切面对象
      */

@@ -515,13 +515,14 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                             return null;
                         }
                     } else {
-                        dubboFuture.whenComplete(((r, throwable) -> {
+                        ReturnFieldDispatchAop.ThreadSnapshotRunnable snapshotRunnable = ReturnFieldDispatchAop.newThreadSnapshotRunnable(cFields);
+                        dubboFuture.whenComplete(((r, throwable) -> snapshotRunnable.replay(() -> {
                             if (throwable != null) {
                                 future.completeExceptionally(throwable);
                             } else {
                                 future.complete(r);
                             }
-                        }));
+                        })));
                         return result;
                     }
                 } else {
