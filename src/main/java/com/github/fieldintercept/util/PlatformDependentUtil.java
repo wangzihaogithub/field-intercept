@@ -144,6 +144,12 @@ public class PlatformDependentUtil {
                 && ApacheDubboUtil.isProxyDubboProviderMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
     }
 
+    public static boolean isProxySpringWebProviderMethod(Object joinPoint) {
+        return joinPoint != null
+                && PlatformDependentUtil.EXIST_SPRING_WEB
+                && SpringWebUtil.isProxySpringWebProviderMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
+    }
+
     public static <E extends Throwable> void sneakyThrows(Throwable t) throws E {
         throw (E) t;
     }

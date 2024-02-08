@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 import java.lang.reflect.Method;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
@@ -38,39 +37,6 @@ public class SpringWebMvcRegistrarUtil {
             this.propertiesSupplier = propertiesSupplier;
         }
 
-        private static boolean equalsControllerProxyMethod(Method lastProxyMethod, Method controllerProxyMethod) {
-            if (lastProxyMethod == null || controllerProxyMethod == null) {
-                return false;
-            }
-            if (lastProxyMethod == controllerProxyMethod) {
-                return true;
-            }
-            String proxy = lastProxyMethod.getName();
-            String controller = controllerProxyMethod.getName();
-            if (!Objects.equals(proxy, controller)) {
-                return false;
-            }
-            int lastProxyMethodParameterCount = lastProxyMethod.getParameterCount();
-            if (lastProxyMethodParameterCount != controllerProxyMethod.getParameterCount()) {
-                return false;
-            }
-            if (lastProxyMethodParameterCount == 0) {
-                return true;
-            }
-            return equals(controllerProxyMethod.getParameterTypes(), lastProxyMethod.getParameterTypes());
-        }
-
-        private static boolean equals(Class<?>[] controllerParameterTypes, Class<?>[] proxyParameterTypes) {
-            for (int i = 0, len = controllerParameterTypes.length; i < len; i++) {
-                Class<?> controller = controllerParameterTypes[i];
-                Class<?> proxy = proxyParameterTypes[i];
-                if (controller != proxy && !controller.isAssignableFrom(proxy) && !proxy.isAssignableFrom(controller)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         @Override
         public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
             FieldinterceptProperties properties = propertiesSupplier.get();
@@ -84,7 +50,7 @@ public class SpringWebMvcRegistrarUtil {
             if (pending != null && !pending.isDone()) {
                 Object value = pending.value();
                 Method method = PlatformDependentUtil.aspectjMethodSignatureGetMethod(pending.getGroupCollect().getJoinPoint());
-                isControllerProxyMethod = value == body || equalsControllerProxyMethod(method, returnType.getMethod()) || value == BeanMap.invokeGetter(returnType, "returnValue");
+                isControllerProxyMethod = value == body || SpringWebUtil.equalsControllerProxyMethod(method, returnType.getMethod()) || value == BeanMap.invokeGetter(returnType, "returnValue");
             } else {
                 isControllerProxyMethod = false;
             }
