@@ -20,7 +20,6 @@ import org.springframework.web.method.support.HandlerMethodReturnValueHandler;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -85,8 +84,9 @@ public class SpringWebMvcRegistrarUtil {
                 ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute();
                 if (pending != null && !pending.isDoneAndSnapshot()) {
                     Object value = pending.value();
-                    Method method = PlatformDependentUtil.aspectjMethodSignatureGetMethod(pending.getGroupCollect().getJoinPoint());
-                    return returnValue == value || SpringWebUtil.equalsControllerProxyMethod(method, returnType.getMethod()) || value == BeanMap.invokeGetter(returnType, "returnValue");
+                    return returnValue == value
+                            || SpringWebUtil.equalsControllerProxyMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(pending.getGroupCollect().getJoinPoint()), returnType.getMethod())
+                            || value == BeanMap.invokeGetter(returnType, "returnValue");
                 }
             }
             return false;
