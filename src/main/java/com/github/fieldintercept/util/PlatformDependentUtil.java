@@ -1,7 +1,17 @@
 package com.github.fieldintercept.util;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.UndeclaredThrowableException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 public class PlatformDependentUtil {
     public static final boolean EXIST_APACHE_DUBBO;
@@ -152,6 +162,99 @@ public class PlatformDependentUtil {
 
     public static <E extends Throwable> void sneakyThrows(Throwable t) throws E {
         throw (E) t;
+    }
+
+    public static void await(List<? extends Runnable> runnableList, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        if (runnableList != null && !runnableList.isEmpty()) {
+            int size = runnableList.size();
+            CompletableFuture<Void>[] futures = new CompletableFuture[size - 1];
+            for (int i = 1; i < size; i++) {
+                futures[i - 1] = submit(runnableList.get(i), taskExecutor, taskDecorate);
+            }
+            // await run
+            runnableList.get(0).run();
+            CompletableFuture<Void> allOf = CompletableFuture.allOf(futures);
+            try {
+                // await get
+                allOf.get();
+            } catch (InterruptedException | ExecutionException e) {
+                PlatformDependentUtil.sneakyThrows(e);
+            }
+        }
+    }
+
+    public static CompletableFuture<Void> submit(List<? extends Runnable> runnableList, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        if (runnableList == null || runnableList.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        } else {
+            List<CompletableFuture<Void>> list = new ArrayList<>(runnableList.size());
+            for (Runnable runnable : runnableList) {
+                list.add(submit(runnable, taskExecutor, taskDecorate));
+            }
+            return allOf(list, taskDecorate);
+        }
+    }
+
+    public static <T> SnapshotCompletableFuture<Void> allOf(Collection<? extends CompletableFuture<T>> futureList, Function<Runnable, Runnable> taskDecorate) {
+        if (futureList == null || futureList.isEmpty()) {
+            return SnapshotCompletableFuture.completedFuture(null);
+        }
+        SnapshotCompletableFuture<Void> end = SnapshotCompletableFuture.newInstance(taskDecorate);//allOf
+        AtomicInteger count = new AtomicInteger(futureList.size());
+        for (CompletableFuture<?> f : futureList) {
+            f.whenComplete(((unused, throwable) -> {
+                if (!end.isDone()) {
+                    if (throwable != null) {
+                        end.completeExceptionally(throwable);
+                    } else if (count.decrementAndGet() == 0) {
+                        end.complete(null);
+                    }
+                }
+            }));
+        }
+        return end;
+    }
+
+    public static CompletableFuture<Void> submit(Runnable runnable, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        if (taskDecorate != null) {
+            runnable = taskDecorate.apply(runnable);
+        }
+        if (taskExecutor != null) {
+            return CompletableFuture.runAsync(runnable, taskExecutor::apply);
+        } else {
+            runnable.run();
+            return CompletableFuture.completedFuture(null);
+        }
+    }
+
+    public static Throwable unwrap(Throwable throwable) {
+        if (throwable instanceof ExecutionException || throwable instanceof InvocationTargetException || throwable instanceof UndeclaredThrowableException) {
+            return throwable.getCause();
+        } else {
+            return throwable;
+        }
+    }
+
+    public static class ThreadSnapshot {
+        private final Runnable snapshot;
+        private Runnable task;
+
+        public ThreadSnapshot(Function<Runnable, Runnable> taskDecorate) {
+            this.snapshot = taskDecorate != null ? taskDecorate.apply(() -> {
+                Runnable task = this.task;
+                this.task = null;
+                task.run();
+            }) : null;
+        }
+
+        public void replay(Runnable task) {
+            if (snapshot != null) {
+                this.task = task;
+                snapshot.run();
+            } else {
+                task.run();
+            }
+        }
     }
 
 }

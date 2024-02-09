@@ -12,12 +12,12 @@ public interface AbstractMapper<PO extends AbstractPO<ID>, ID extends Number> {
     public default List<PO> findByIds(Collection<ID> id) {
         long start = System.currentTimeMillis();
         try {
-            Thread.sleep(ThreadLocalRandom.current().nextInt(1150, 1300));
+//            Thread.sleep(ThreadLocalRandom.current().nextInt(1150, 1300));
             return findByIds0(id);
         } catch (Exception e) {
             throw new RuntimeException("InterruptedException", e);
         } finally {
-             LoggerFactory.getLogger(getClass()).info("findByIds({}) end {}/ms", id, System.currentTimeMillis() - start);
+//             LoggerFactory.getLogger(getClass()).info("findByIds({}) end {}/ms", id, System.currentTimeMillis() - start);
         }
     }
 

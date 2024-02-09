@@ -84,6 +84,23 @@ public class SpringWebUtil {
         }
     }
 
+    public static <JOIN_POINT> ReturnFieldDispatchAop.Pending<JOIN_POINT> removePendingRequestAttribute(Object request0) {
+        HttpServletRequest request;
+        if (request0 instanceof HttpServletRequest) {
+            request = (HttpServletRequest) request0;
+        } else {
+            request = getCurrentRequest();
+        }
+        if (request != null) {
+            Object attribute = request.getAttribute(ATTR_NAME_PENDING);
+            request.removeAttribute(ATTR_NAME_PENDING);
+            if (attribute instanceof ReturnFieldDispatchAop.Pending) {
+                return (ReturnFieldDispatchAop.Pending<JOIN_POINT>) attribute;
+            }
+        }
+        return null;
+    }
+
     public static <JOIN_POINT> ReturnFieldDispatchAop.Pending<JOIN_POINT> getPendingRequestAttribute() {
         HttpServletRequest request = getCurrentRequest();
         if (request != null) {

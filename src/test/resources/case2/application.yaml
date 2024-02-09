@@ -1,3 +1,7 @@
 spring:
   fieldintercept:
     beanBasePackages: 'com.github'
+    batch-aggregation:
+      enabled: auto
+      poll-min-size: 5
+      poll-milliseconds: 100
