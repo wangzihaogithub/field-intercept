@@ -64,4 +64,31 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
         }
     }
 
+    @Override
+    public boolean cancel(boolean mayInterruptIfRunning) {
+        if (threadSnapshot != null) {
+            threadSnapshot.replay(() -> super.cancel(mayInterruptIfRunning));
+            return isCancelled();
+        } else {
+            return super.cancel(mayInterruptIfRunning);
+        }
+    }
+
+    @Override
+    public void obtrudeException(Throwable ex) {
+        if (threadSnapshot != null) {
+            threadSnapshot.replay(() -> super.obtrudeException(ex));
+        } else {
+            super.obtrudeException(ex);
+        }
+    }
+
+    @Override
+    public void obtrudeValue(T value) {
+        if (threadSnapshot != null) {
+            threadSnapshot.replay(() -> super.obtrudeValue(value));
+        } else {
+            super.obtrudeValue(value);
+        }
+    }
 }
