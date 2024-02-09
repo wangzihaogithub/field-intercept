@@ -15,7 +15,7 @@ public class SpringWebUtil {
     public static final String ATTR_NAME_PENDING_PROXY = "fieldintercept.pending.isControllerProxyMethod";
     public static final String ATTR_NAME_PENDING = "fieldintercept.pending";
 
-    public static boolean isProxySpringWebProviderMethod(Method proxyMethod) {
+    public static boolean isProxySpringWebControllerMethod(Method proxyMethod) {
         HttpServletRequest request = getCurrentRequest();
         if (request == null) {
             return false;

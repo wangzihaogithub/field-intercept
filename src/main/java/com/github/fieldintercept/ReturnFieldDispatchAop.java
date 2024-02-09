@@ -241,14 +241,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    public static ThreadSnapshot newThreadSnapshot(List<CField> cFieldList) {
-        if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
-            return new ThreadSnapshot(((SplitCFieldList) cFieldList).groupCollect.aop.taskDecorate);
-        } else {
-            return new ThreadSnapshot(null);
-        }
-    }
-
     public static <KEY, VALUE> Map<KEY, VALUE> getLocalCache(List<CField> cFieldList, Object cacheKey) {
         if (cFieldList instanceof ReturnFieldDispatchAop.SplitCFieldList) {
             return (Map<KEY, VALUE>) ((SplitCFieldList) cFieldList).groupCollect.getLocalCache(((SplitCFieldList) cFieldList).beanName, cacheKey);
@@ -403,7 +395,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
     protected abstract void aopAfter();
 
-    protected abstract void aopReturningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException;
+    protected abstract void aopReturningAfter(JOIN_POINT joinPoint, Object result);
 
     public void autowiredFieldValue(Object... result) {
         before();
@@ -494,7 +486,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 ApacheDubboUtil.startAsync(pending);
                 startAsync = true;
             }
-            if (PlatformDependentUtil.isProxySpringWebProviderMethod(joinPoint)) {
+            if (PlatformDependentUtil.isProxySpringWebControllerMethod(joinPoint)) {
                 SpringWebUtil.setPendingRequestAttribute(pending);
                 startAsync = true;
             }
@@ -626,12 +618,11 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
-    protected <E extends Throwable> void sneakyThrows(Throwable t) throws E {
+    protected void sneakyThrows(Throwable t) {
         if (t instanceof InterruptedException) {
             Thread.currentThread().interrupt();
         }
-        E cause = (E) PlatformDependentUtil.unwrap(t);
-        throw cause;
+        PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(t));
     }
 
     private CompletableFuture<Void> autowired(GroupCollect<JOIN_POINT> groupCollectMap, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
@@ -1390,7 +1381,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         public Collection<SnapshotCompletableFuture<Object>> getAsyncList() {
-            List<SnapshotCompletableFuture<Object>> list = new ArrayList<>(6);
+            List<SnapshotCompletableFuture<Object>> list = new ArrayList<>(interceptAsyncMap.size());
             for (ConcurrentHashMap<Object, SnapshotCompletableFuture<Object>> cache : interceptAsyncMap.values()) {
                 for (SnapshotCompletableFuture<Object> future : cache.values()) {
                     if (!future.isDone()) {
@@ -1839,17 +1830,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         @Override
         protected void aopBefore() {
-            throw new IllegalStateException("not support aop");
+            throw new UnsupportedOperationException("aopBefore");
         }
 
         @Override
         protected void aopAfter() {
-            throw new IllegalStateException("not support aop");
+            throw new UnsupportedOperationException("aopAfter");
         }
 
         @Override
-        protected void aopReturningAfter(JOIN_POINT joinPoint, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
-            throw new IllegalStateException("not support aop");
+        protected void aopReturningAfter(JOIN_POINT joinPoint, Object result) {
+            throw new UnsupportedOperationException("aopReturningAfter");
         }
     }
 

@@ -512,7 +512,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                         try {
                             return dubboFuture.get();
                         } catch (Exception e) {
-                            PlatformDependentUtil.sneakyThrows(e);
+                            PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(e));
                             return null;
                         }
                     } else {

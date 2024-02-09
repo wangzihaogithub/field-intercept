@@ -4,10 +4,10 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -154,10 +154,10 @@ public class PlatformDependentUtil {
                 && ApacheDubboUtil.isProxyDubboProviderMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
     }
 
-    public static boolean isProxySpringWebProviderMethod(Object joinPoint) {
+    public static boolean isProxySpringWebControllerMethod(Object joinPoint) {
         return joinPoint != null
                 && PlatformDependentUtil.EXIST_SPRING_WEB
-                && SpringWebUtil.isProxySpringWebProviderMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
+                && SpringWebUtil.isProxySpringWebControllerMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
     }
 
     public static <E extends Throwable> void sneakyThrows(Throwable t) throws E {
@@ -177,8 +177,8 @@ public class PlatformDependentUtil {
             try {
                 // await get
                 allOf.get();
-            } catch (InterruptedException | ExecutionException e) {
-                PlatformDependentUtil.sneakyThrows(e);
+            } catch (Exception e) {
+                PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(e));
             }
         }
     }
@@ -187,19 +187,30 @@ public class PlatformDependentUtil {
         if (runnableList == null || runnableList.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         } else {
-            List<CompletableFuture<Void>> list = new ArrayList<>(runnableList.size());
+            int size = runnableList.size();
+            CompletableFuture<Void> end = new CompletableFuture<>();
+            AtomicInteger count = new AtomicInteger(size);
             for (Runnable runnable : runnableList) {
-                list.add(submit(runnable, taskExecutor, taskDecorate));
+                submit(runnable, taskExecutor, taskDecorate).whenComplete(((unused, throwable) -> {
+                    // 这里有上下文
+                    if (!end.isDone()) {
+                        if (throwable != null) {
+                            end.completeExceptionally(throwable);
+                        } else if (count.decrementAndGet() == 0) {
+                            end.complete(null);
+                        }
+                    }
+                }));
             }
-            return allOf(list, taskDecorate);
+            return end;
         }
     }
 
-    public static <T> SnapshotCompletableFuture<Void> allOf(Collection<? extends CompletableFuture<T>> futureList, Function<Runnable, Runnable> taskDecorate) {
+    public static <T> CompletableFuture<Void> allOf(Collection<SnapshotCompletableFuture<T>> futureList, Function<Runnable, Runnable> taskDecorate) {
         if (futureList == null || futureList.isEmpty()) {
-            return SnapshotCompletableFuture.completedFuture(null);
+            return CompletableFuture.completedFuture(null);
         }
-        SnapshotCompletableFuture<Void> end = SnapshotCompletableFuture.newInstance(taskDecorate);//allOf
+        CompletableFuture<Void> end = new CompletableFuture<>();//allOf
         AtomicInteger count = new AtomicInteger(futureList.size());
         for (CompletableFuture<?> f : futureList) {
             f.whenComplete(((unused, throwable) -> {
@@ -215,12 +226,30 @@ public class PlatformDependentUtil {
         return end;
     }
 
-    public static CompletableFuture<Void> submit(Runnable runnable, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
-        if (taskDecorate != null) {
-            runnable = taskDecorate.apply(runnable);
-        }
+    private static CompletableFuture<Void> submit(Runnable runnable, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        ThreadSnapshot threadSnapshot = taskDecorate != null ? new ThreadSnapshot(taskDecorate) : null;
         if (taskExecutor != null) {
-            return CompletableFuture.runAsync(runnable, taskExecutor::apply);
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            taskExecutor.apply(() -> {
+                if (threadSnapshot != null) {
+                    threadSnapshot.replay(() -> {
+                        try {
+                            runnable.run();
+                            future.complete(null);
+                        } catch (Throwable t) {
+                            future.completeExceptionally(t);
+                        }
+                    });
+                } else {
+                    try {
+                        runnable.run();
+                        future.complete(null);
+                    } catch (Throwable t) {
+                        future.completeExceptionally(t);
+                    }
+                }
+            });
+            return future;
         } else {
             runnable.run();
             return CompletableFuture.completedFuture(null);
@@ -228,11 +257,16 @@ public class PlatformDependentUtil {
     }
 
     public static Throwable unwrap(Throwable throwable) {
-        if (throwable instanceof ExecutionException || throwable instanceof InvocationTargetException || throwable instanceof UndeclaredThrowableException) {
-            return throwable.getCause();
-        } else {
-            return throwable;
+        Throwable cause = throwable;
+        while (cause instanceof CompletionException || cause instanceof ExecutionException || cause instanceof InvocationTargetException || cause instanceof UndeclaredThrowableException) {
+            Throwable next = cause.getCause();
+            if (next == null) {
+                break;
+            } else {
+                cause = next;
+            }
         }
+        return cause;
     }
 
     public static class ThreadSnapshot {

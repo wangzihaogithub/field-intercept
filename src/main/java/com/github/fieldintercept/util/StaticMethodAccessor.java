@@ -10,9 +10,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 
-public class StaticMethodAccessor implements Function<String, Object> {
+public class StaticMethodAccessor {
     private static final Map<String, StaticMethodAccessor> CACHE = new ConcurrentHashMap<>();
     private static final Map<Class<?>, Map<Member, String[]>> PARAMETER_NAMES_CACHE = new ConcurrentHashMap<>();
     private final String classMethodName;
@@ -91,16 +90,6 @@ public class StaticMethodAccessor implements Function<String, Object> {
 
     public String[] getParameterNames() {
         return parameterNames;
-    }
-
-    @Override
-    public Object apply(String name) {
-        try {
-            return method.invoke(null, name);
-        } catch (IllegalAccessException | InvocationTargetException e) {
-            PlatformDependentUtil.sneakyThrows(e);
-            return null;
-        }
     }
 
     @Override
