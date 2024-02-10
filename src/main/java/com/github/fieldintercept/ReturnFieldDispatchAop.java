@@ -756,8 +756,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         for (PropertyDescriptor descriptor : propertyDescriptor.values()) {
             // 支持getter方法明确表示get返回的结果需要注入
             Method readMethod = descriptor.getReadMethod();
-            if (isEntity && readMethod != null && readMethod.getDeclaredAnnotations().length > 0
-                    && returnFieldAopCache.findDeclaredAnnotation(readMethod) != null) {
+            if (isEntity && readMethod != null && returnFieldAopCache.findDeclaredAnnotation(readMethod) != null) {
                 stack.add(readMethod.invoke(bean));
                 continue;
             }
@@ -1712,7 +1711,11 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             if (element == null) {
                 return null;
             }
-            return instanceCache.computeIfAbsent(element, e -> AnnotationUtil.findExtendsAnnotation(element, alias, type, findCache));
+            Annotation[] annotations = element.getDeclaredAnnotations();
+            if (annotations == null || annotations.length == 0) {
+                return null;
+            }
+            return instanceCache.computeIfAbsent(element, e -> AnnotationUtil.findExtendsAnnotation(annotations, alias, type, findCache));
         }
     }
 

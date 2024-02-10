@@ -219,7 +219,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 this.intercept = intercept;
                 this.serviceBean = serviceBean;
                 this.beanName = beanName;
-                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
+                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass().getDeclaredAnnotations(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
             }
 
             private boolean isRpc() {
