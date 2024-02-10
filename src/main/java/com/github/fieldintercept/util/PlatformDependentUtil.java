@@ -248,7 +248,7 @@ public class PlatformDependentUtil {
         if (futureList == null || futureList.isEmpty()) {
             return COMPLETED;
         }
-        CompletableFuture<Void> end = new CompletableFuture<>();//allOf
+        CompletableFuture<Void> end = new CompletableFuture<>();//futureList是SnapshotCompletableFuture
         AtomicInteger count = new AtomicInteger(futureList.size());
         for (CompletableFuture<?> f : futureList) {
             f.whenComplete(((unused, throwable) -> {
@@ -291,6 +291,7 @@ public class PlatformDependentUtil {
     public static class RunnableCompletableFuture<T> extends CompletableFuture<T> implements Runnable {
         private final Runnable runnable;
         private final ThreadSnapshot threadSnapshot;
+        private final Thread thread = Thread.currentThread();
 
         private RunnableCompletableFuture(Function<Runnable, Runnable> taskDecorate, Runnable runnable) {
             this.threadSnapshot = taskDecorate != null ? new ThreadSnapshot(taskDecorate) : null;
@@ -299,7 +300,7 @@ public class PlatformDependentUtil {
 
         @Override
         public void run() {
-            if (threadSnapshot != null) {
+            if (threadSnapshot != null && thread != Thread.currentThread()) {
                 threadSnapshot.replay(() -> {
                     try {
                         runnable.run();
