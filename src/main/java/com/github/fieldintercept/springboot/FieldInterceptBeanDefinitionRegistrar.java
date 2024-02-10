@@ -167,10 +167,9 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    protected Function<Runnable, Future> taskExecutorFunction() {
+    protected Executor taskExecutorFunction() {
         if (thread.isEnabled()) {
-            ExecutorService taskExecutor = taskExecutor(thread);
-            return taskExecutor::submit;
+            return taskExecutor(thread);
         } else {
             return null;
         }
@@ -236,7 +235,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    protected ExecutorService taskExecutor(FieldinterceptProperties.Thread config) {
+    protected Executor taskExecutor(FieldinterceptProperties.Thread config) {
         return new ThreadPoolExecutor(config.getCorePoolSize(), config.getMaxThreads(),
                 config.getKeepAliveTimeSeconds(), TimeUnit.SECONDS,
                 new SynchronousQueue<>(),

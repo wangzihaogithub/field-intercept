@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public class PlatformDependentUtil {
@@ -24,6 +25,16 @@ public class PlatformDependentUtil {
     private static final Method METHOD_LOGGER_WARN;
     private static final Method METHOD_ASPECTJ_JOIN_POINT_GET_SIGNATURE;
     private static final Method METHOD_ASPECTJ_METHOD_SIGNATURE_GET_METHOD;
+    private static final CompletableFuture<Void> COMPLETED = CompletableFuture.completedFuture(null);
+
+    static {
+        COMPLETED.whenComplete(new BiConsumer<Void, Throwable>() {
+            @Override
+            public void accept(Void unused, Throwable throwable) {
+                System.out.println("unused = " + unused);
+            }
+        });
+    }
 
     static {
         boolean existApacheDubbo;
@@ -164,7 +175,7 @@ public class PlatformDependentUtil {
         throw (E) t;
     }
 
-    public static void await(List<? extends Runnable> runnableList, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+    public static void await(List<? extends Runnable> runnableList, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
         if (runnableList != null && !runnableList.isEmpty()) {
             int size = runnableList.size();
             CompletableFuture<Void>[] futures = new CompletableFuture[size - 1];
@@ -183,14 +194,41 @@ public class PlatformDependentUtil {
         }
     }
 
-    public static CompletableFuture<Void> submit(List<? extends Runnable> runnableList, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
-        if (runnableList == null || runnableList.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
+    public static CompletableFuture<Void> submit(List<? extends Runnable> runnableList, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+        if (runnableList == null) {
+            return COMPLETED;
+        }
+        int size = runnableList.size();
+        if (size == 0) {
+            return COMPLETED;
         } else {
-            int size = runnableList.size();
+            int runSize;
+            int runIndex;
+            // 减少切换线程次数（如果已经在异步线程里，当前线程跑第一个，开新线程跑其他的）
+            if (ThreadSnapshot.isUserThread()) {
+                if (size == 1) {
+                    return submit(runnableList.get(0), taskExecutor, taskDecorate);
+                }
+                runSize = size;
+                runIndex = -1;
+            } else {
+                runIndex = 0;
+                runSize = size - 1;
+                Runnable runnable = runnableList.get(runIndex);
+                runnable.run();
+                if (runSize == 0) {
+                    return COMPLETED;
+                } else if (runSize == 1) {
+                    return submit(runnableList.get(1), taskExecutor, taskDecorate);
+                }
+            }
             CompletableFuture<Void> end = new CompletableFuture<>();
-            AtomicInteger count = new AtomicInteger(size);
+            AtomicInteger count = new AtomicInteger(runSize);
+            int i = 0;
             for (Runnable runnable : runnableList) {
+                if (i++ == runIndex) {
+                    continue;
+                }
                 submit(runnable, taskExecutor, taskDecorate).whenComplete(((unused, throwable) -> {
                     // 这里有上下文
                     if (!end.isDone()) {
@@ -208,7 +246,7 @@ public class PlatformDependentUtil {
 
     public static <T> CompletableFuture<Void> allOf(Collection<SnapshotCompletableFuture<T>> futureList, Function<Runnable, Runnable> taskDecorate) {
         if (futureList == null || futureList.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
+            return COMPLETED;
         }
         CompletableFuture<Void> end = new CompletableFuture<>();//allOf
         AtomicInteger count = new AtomicInteger(futureList.size());
@@ -226,33 +264,14 @@ public class PlatformDependentUtil {
         return end;
     }
 
-    private static CompletableFuture<Void> submit(Runnable runnable, Function<Runnable, Future> taskExecutor, Function<Runnable, Runnable> taskDecorate) {
-        ThreadSnapshot threadSnapshot = taskDecorate != null ? new ThreadSnapshot(taskDecorate) : null;
+    private static CompletableFuture<Void> submit(Runnable runnable, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
         if (taskExecutor != null) {
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            taskExecutor.apply(() -> {
-                if (threadSnapshot != null) {
-                    threadSnapshot.replay(() -> {
-                        try {
-                            runnable.run();
-                            future.complete(null);
-                        } catch (Throwable t) {
-                            future.completeExceptionally(t);
-                        }
-                    });
-                } else {
-                    try {
-                        runnable.run();
-                        future.complete(null);
-                    } catch (Throwable t) {
-                        future.completeExceptionally(t);
-                    }
-                }
-            });
-            return future;
+            RunnableCompletableFuture<Void> runnableFuture = new RunnableCompletableFuture<>(taskDecorate, runnable);
+            taskExecutor.execute(runnableFuture);
+            return runnableFuture;
         } else {
             runnable.run();
-            return CompletableFuture.completedFuture(null);
+            return COMPLETED;
         }
     }
 
@@ -269,8 +288,49 @@ public class PlatformDependentUtil {
         return cause;
     }
 
+    public static class RunnableCompletableFuture<T> extends CompletableFuture<T> implements Runnable {
+        private final Runnable runnable;
+        private final ThreadSnapshot threadSnapshot;
+
+        private RunnableCompletableFuture(Function<Runnable, Runnable> taskDecorate, Runnable runnable) {
+            this.threadSnapshot = taskDecorate != null ? new ThreadSnapshot(taskDecorate) : null;
+            this.runnable = runnable;
+        }
+
+        @Override
+        public void run() {
+            if (threadSnapshot != null) {
+                threadSnapshot.replay(() -> {
+                    try {
+                        runnable.run();
+                        complete(null);
+                    } catch (Throwable t) {
+                        completeExceptionally(t);
+                    }
+                });
+            } else {
+                try {
+                    runnable.run();
+                    complete(null);
+                } catch (Throwable t) {
+                    completeExceptionally(t);
+                }
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "RunnableCompletableFuture{" +
+                    "runnable=" + runnable +
+                    ", threadSnapshot=" + threadSnapshot +
+                    '}';
+        }
+    }
+
     public static class ThreadSnapshot {
+        private static final ThreadLocal<ThreadSnapshot> CURRENT = new ThreadLocal<>();
         private final Runnable snapshot;
+        private final Thread userThread;
         private Runnable task;
 
         public ThreadSnapshot(Function<Runnable, Runnable> taskDecorate) {
@@ -279,14 +339,34 @@ public class PlatformDependentUtil {
                 this.task = null;
                 task.run();
             }) : null;
+            ThreadSnapshot parent = CURRENT.get();
+            if (parent != null) {
+                userThread = parent.userThread;
+            } else {
+                userThread = Thread.currentThread();
+            }
+        }
+
+        public static boolean isUserThread() {
+            ThreadSnapshot threadSnapshot = CURRENT.get();
+            if (threadSnapshot != null) {
+                return threadSnapshot.userThread == Thread.currentThread();
+            } else {
+                return true;
+            }
         }
 
         public void replay(Runnable task) {
-            if (snapshot != null) {
-                this.task = task;
-                snapshot.run();
-            } else {
-                task.run();
+            try {
+                CURRENT.set(this);
+                if (snapshot != null) {
+                    this.task = task;
+                    snapshot.run();
+                } else {
+                    task.run();
+                }
+            } finally {
+                CURRENT.remove();
             }
         }
     }

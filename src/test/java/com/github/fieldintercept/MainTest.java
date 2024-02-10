@@ -33,7 +33,7 @@ public class MainTest {
         dispatchAop.setBatchAggregation(ReturnFieldDispatchAop.BatchAggregationEnum.auto);
         dispatchAop.setBatchAggregationPollMilliseconds(3000);
         dispatchAop.setBatchAggregationPollMaxSize(5);
-        dispatchAop.setTaskExecutor(executorService::submit);
+        dispatchAop.setTaskExecutor(executorService);
         dispatchAop.setTaskDecorate(AccessUserUtil::runnable);
         for (int i = 0; i < 5; i++) {
             int finalI = i;
