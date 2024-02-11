@@ -11,7 +11,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public class PlatformDependentUtil {
@@ -28,15 +27,6 @@ public class PlatformDependentUtil {
     private static final CompletableFuture<Void> COMPLETED = CompletableFuture.completedFuture(null);
 
     static {
-        COMPLETED.whenComplete(new BiConsumer<Void, Throwable>() {
-            @Override
-            public void accept(Void unused, Throwable throwable) {
-                System.out.println("unused = " + unused);
-            }
-        });
-    }
-
-    static {
         boolean existApacheDubbo;
         try {
             Class.forName("org.apache.dubbo.rpc.AsyncContext");
@@ -48,8 +38,8 @@ public class PlatformDependentUtil {
 
         boolean existSpringWeb;
         try {
-            Class.forName("org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice");
-            Class.forName("org.springframework.web.bind.annotation.ControllerAdvice");
+            Class.forName("org.springframework.web.method.support.AsyncHandlerMethodReturnValueHandler");
+            Class.forName("org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter");
             Class.forName("org.springframework.web.context.request.RequestContextHolder");
             existSpringWeb = true;
         } catch (Throwable e) {
@@ -357,17 +347,25 @@ public class PlatformDependentUtil {
             }
         }
 
+        public boolean isAsyncThread() {
+            return userThread != Thread.currentThread();
+        }
+
         public void replay(Runnable task) {
-            try {
-                CURRENT.set(this);
-                if (snapshot != null) {
-                    this.task = task;
-                    snapshot.run();
-                } else {
-                    task.run();
+            if (userThread == Thread.currentThread()) {
+                snapshot.run();
+            } else {
+                try {
+                    CURRENT.set(this);
+                    if (snapshot != null) {
+                        this.task = task;
+                        snapshot.run();
+                    } else {
+                        task.run();
+                    }
+                } finally {
+                    CURRENT.remove();
                 }
-            } finally {
-                CURRENT.remove();
             }
         }
     }

@@ -35,7 +35,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
         if (isDone()) {
             return false;
         }
-        if (threadSnapshot != null) {
+        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
             threadSnapshot.replay(() -> super.completeExceptionally(ex));
             return true;
         } else {
@@ -48,7 +48,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
         if (isDone()) {
             return false;
         }
-        if (threadSnapshot != null) {
+        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
             threadSnapshot.replay(() -> super.complete(value));
             return true;
         } else {
@@ -66,7 +66,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
-        if (threadSnapshot != null) {
+        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
             threadSnapshot.replay(() -> super.cancel(mayInterruptIfRunning));
             return isCancelled();
         } else {
@@ -76,7 +76,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public void obtrudeException(Throwable ex) {
-        if (threadSnapshot != null) {
+        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
             threadSnapshot.replay(() -> super.obtrudeException(ex));
         } else {
             super.obtrudeException(ex);
@@ -85,7 +85,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public void obtrudeValue(T value) {
-        if (threadSnapshot != null) {
+        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
             threadSnapshot.replay(() -> super.obtrudeValue(value));
         } else {
             super.obtrudeValue(value);

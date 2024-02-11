@@ -3,6 +3,8 @@ package com.github.case2;
 // import com.github.fieldintercept.annotation.EnableFieldIntercept;
 import com.github.fieldintercept.Print;
 import com.github.fieldintercept.ReturnFieldDispatchAop;
+import com.github.fieldintercept.annotation.ReturnFieldAop;
+import com.github.fieldintercept.springboot.AspectjReturnFieldDispatchAop;
 import com.github.securityfilter.WebSecurityAccessFilter;
 import com.github.securityfilter.util.AccessUserUtil;
 import org.springframework.boot.SpringApplication;
@@ -15,6 +17,7 @@ import javax.servlet.DispatcherType;
 import javax.servlet.http.HttpServletRequest;
 import java.net.URL;
 import java.util.EnumSet;
+import java.util.concurrent.Executor;
 
 /**
  * -Xmx556m -Xms556m -XX:+UseG1GC
@@ -41,6 +44,20 @@ public class Case2ApplicationBootstrap {
             this.accessToken = accessToken;
         }
     }
+
+//    @Bean
+    public AspectjReturnFieldDispatchAop aop(){
+        AspectjReturnFieldDispatchAop aop = new AspectjReturnFieldDispatchAop();
+
+        aop.setTaskExecutor(new Executor() {
+            @Override
+            public void execute(Runnable command) {
+                command.run();
+            }
+        });
+        return aop;
+    }
+
     @Bean
     public FilterRegistrationBean securityAccessFilterRegistration() {
         FilterRegistrationBean<WebSecurityAccessFilter> registration = new FilterRegistrationBean<>();

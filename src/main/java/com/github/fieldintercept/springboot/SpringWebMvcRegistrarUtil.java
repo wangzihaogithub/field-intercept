@@ -20,12 +20,12 @@ import org.springframework.web.method.support.HandlerMethodReturnValueHandler;
 import org.springframework.web.method.support.ModelAndViewContainer;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 public class SpringWebMvcRegistrarUtil {
@@ -81,11 +81,14 @@ public class SpringWebMvcRegistrarUtil {
         private boolean isAsyncReturnValue0(Object returnValue, MethodParameter returnType) {
             FieldinterceptProperties properties = propertiesSupplier.get();
             if (properties.getBatchAggregation().isPendingNonBlock()) {
-                ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getPendingRequestAttribute();
+                ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.getAsync();
                 if (pending != null && !pending.isDoneAndSnapshot()) {
                     Object value = pending.value();
-                    return returnValue == value
-                            || SpringWebUtil.equalsControllerProxyMethod(PlatformDependentUtil.aspectjMethodSignatureGetMethod(pending.getGroupCollect().getJoinPoint()), returnType.getMethod())
+                    if (returnValue != null && returnValue == value) {
+                        return true;
+                    }
+                    Method proxyMethod = PlatformDependentUtil.aspectjMethodSignatureGetMethod(pending.getGroupCollect().getJoinPoint());
+                    return SpringWebUtil.equalsControllerProxyMethod(proxyMethod, returnType.getMethod())
                             || value == BeanMap.invokeGetter(returnType, "returnValue");
                 }
             }
@@ -94,36 +97,26 @@ public class SpringWebMvcRegistrarUtil {
 
         @Override
         public void handleReturnValue(Object returnValue, MethodParameter returnType, ModelAndViewContainer mavContainer, NativeWebRequest webRequest) throws Exception {
-            ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.removePendingRequestAttribute(webRequest.getNativeRequest());
+            ReturnFieldDispatchAop.Pending<Object> pending = SpringWebUtil.removeAsync(webRequest.getNativeRequest());
             Objects.requireNonNull(pending);
 
             DeferredResult<Object> result = new DeferredResult<>();
             PlatformDependentUtil.ThreadSnapshot threadSnapshot = new PlatformDependentUtil.ThreadSnapshot(ReturnFieldDispatchAop.getInstance().getTaskDecorate());
             if (returnValue instanceof DeferredResult) {
-                ((DeferredResult<?>) returnValue).onCompletion(new Runnable() {
-                    @Override
-                    public void run() {
-                        pending.whenComplete((unused, err1) -> {
-                            threadSnapshot.replay(() -> {
-                                if (err1 != null) {
-                                    result.setErrorResult(err1);
-                                } else {
-                                    result.setResult(((DeferredResult<?>) returnValue).getResult());
-                                }
-                            });
-                        });
-                    }
-                });
-                ((DeferredResult<?>) returnValue).onError(new Consumer<Throwable>() {
-                    @Override
-                    public void accept(Throwable throwable) {
-                        pending.whenComplete((unused, err1) -> {
-                            threadSnapshot.replay(() -> {
-                                result.setErrorResult(throwable);
-                            });
-                        });
-                    }
-                });
+                ((DeferredResult<?>) returnValue).onCompletion(() -> pending.whenComplete((unused, err1) -> {
+                    threadSnapshot.replay(() -> {
+                        if (err1 != null) {
+                            result.setErrorResult(err1);
+                        } else {
+                            result.setResult(((DeferredResult<?>) returnValue).getResult());
+                        }
+                    });
+                }));
+                ((DeferredResult<?>) returnValue).onError(throwable -> pending.whenComplete((unused, err1) -> {
+                    threadSnapshot.replay(() -> {
+                        result.setErrorResult(throwable);
+                    });
+                }));
             } else if (returnValue instanceof CompletionStage) {
                 ((CompletionStage<?>) returnValue).whenComplete((body, err) -> {
                     pending.whenComplete((unused, err1) -> {
