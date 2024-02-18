@@ -25,7 +25,7 @@ public class FieldinterceptProperties {
      * 线程策略
      */
     @NestedConfigurationProperty
-    private final Thread thread = new Thread();
+    private final ThreadPool threadPool = new ThreadPool();
     /**
      * 是否开启字段拦截
      */
@@ -66,8 +66,8 @@ public class FieldinterceptProperties {
         return batchAggregation;
     }
 
-    public Thread getThread() {
-        return thread;
+    public ThreadPool getThreadPool() {
+        return threadPool;
     }
 
     public boolean isEnabled() {
@@ -134,7 +134,7 @@ public class FieldinterceptProperties {
         all
     }
 
-    public static class Thread {
+    public static class ThreadPool {
         /**
          * 是否并行查询 true=用线程池并行,false=在调用者线程上串行
          */

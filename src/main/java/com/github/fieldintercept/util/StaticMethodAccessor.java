@@ -1,7 +1,5 @@
 package com.github.fieldintercept.util;
 
-import java.io.IOException;
-import java.lang.instrument.IllegalClassFormatException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -13,11 +11,11 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class StaticMethodAccessor {
     private static final Map<String, StaticMethodAccessor> CACHE = new ConcurrentHashMap<>();
-    private static final Map<Class<?>, Map<Member, String[]>> PARAMETER_NAMES_CACHE = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Map<Member, JavaClassFile.Parameter[]>> PARAMETER_NAMES_CACHE = new ConcurrentHashMap<>();
     private final String classMethodName;
     private final Method method;
     private final Class<?>[] parameterTypes;
-    private final String[] parameterNames;
+    private final JavaClassFile.Parameter[] parameters;
 
     public StaticMethodAccessor(String classMethodName) {
         Method method = null;
@@ -45,34 +43,34 @@ public class StaticMethodAccessor {
         this.parameterTypes = parameterTypes;
         this.classMethodName = classMethodName;
         this.method = method;
-        String[] parameterNames = getParameterNames(method);
-        this.parameterNames = parameterNames != null && parameterNames.length == parameterTypes.length ? parameterNames : null;
+        JavaClassFile.Parameter[] parameterNames = getParameterNames(method);
+        this.parameters = parameterNames != null && parameterNames.length == parameterTypes.length ? parameterNames : null;
     }
 
-    private static Map<Member, String[]> readParameterNameMap(Class<?> clazz) {
+    private static Map<Member, JavaClassFile.Parameter[]> readParameterNameMap(Class<?> clazz) {
         try {
             JavaClassFile javaClassFile = new JavaClassFile(clazz);
-            Map<Member, String[]> result = new HashMap<>(6);
+            Map<Member, JavaClassFile.Parameter[]> result = new HashMap<>(6);
             for (JavaClassFile.Member member : javaClassFile.getMethods()) {
                 try {
                     Member javaMember = member.toJavaMember();
-                    String[] parameterNames = member.getParameterNames();
-                    result.put(javaMember, parameterNames);
+                    JavaClassFile.Parameter[] parameters = member.getParameters();
+                    result.put(javaMember, parameters);
                 } catch (Exception ignored) {
                 }
             }
             return result;
-        } catch (ClassNotFoundException | IOException | IllegalClassFormatException e) {
+        } catch (Exception e) {
             return Collections.emptyMap();
         }
     }
 
-    public static String[] getParameterNames(Method method) {
+    public static JavaClassFile.Parameter[] getParameterNames(Method method) {
         Class<?> declaringClass = method.getDeclaringClass();
         if (declaringClass.isInterface()) {
             return null;
         }
-        Map<Member, String[]> memberMap = PARAMETER_NAMES_CACHE.computeIfAbsent(declaringClass, e -> readParameterNameMap(declaringClass));
+        Map<Member, JavaClassFile.Parameter[]> memberMap = PARAMETER_NAMES_CACHE.computeIfAbsent(declaringClass, e -> readParameterNameMap(declaringClass));
         return memberMap.get(method);
     }
 
@@ -88,8 +86,8 @@ public class StaticMethodAccessor {
         return parameterTypes;
     }
 
-    public String[] getParameterNames() {
-        return parameterNames;
+    public JavaClassFile.Parameter[] getParameters() {
+        return parameters;
     }
 
     @Override

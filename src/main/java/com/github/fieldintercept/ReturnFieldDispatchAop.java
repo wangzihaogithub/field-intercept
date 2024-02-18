@@ -249,6 +249,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     }
 
+    public static boolean isInEventLoop() {
+        return Thread.currentThread() instanceof PendingSignalThread;
+    }
+
     protected abstract void aopBefore();
 
     protected abstract void aopAfter();
@@ -279,7 +283,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     public CompletableFuture<Void> submit(List<? extends Runnable> runnableList) {
-        return PlatformDependentUtil.submit(runnableList, taskExecutor, taskDecorate);
+        return PlatformDependentUtil.submit(runnableList, taskExecutor, taskDecorate, !isInEventLoop());
     }
 
     protected void before() {
@@ -952,9 +956,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                                                                 String beanName,
                                                                 BiConsumer<?, List<CField>> consumer,
                                                                 ReturnFieldDispatchAop.Pending<JOIN_POINT> pending,
-                                                                Pending<JOIN_POINT>[] pendings) throws InvocationTargetException, IllegalAccessException {
+                                                                Pending<JOIN_POINT>[] pendings,
+                                                                int pendingIndex) throws InvocationTargetException, IllegalAccessException {
             Class<?>[] parameterTypes = staticMethodAccessor.getParameterTypes();
-            String[] parameterNames = staticMethodAccessor.getParameterNames();
+            JavaClassFile.Parameter[] parameters = staticMethodAccessor.getParameters();
             GroupCollect<JOIN_POINT> groupCollect = pending.groupCollectMap;
             Object joinPoint = groupCollect.joinPoint;
             Object result = groupCollect.result;
@@ -963,7 +968,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             Object[] args = new Object[parameterTypes.length];
             for (int i = 0; i < parameterTypes.length; i++) {
                 Class<?> parameterType = parameterTypes[i];
-                String parameterName = parameterNames == null ? null : parameterNames[i];
+                String parameterName = parameters == null ? null : parameters[i].getName();
+                JavaClassFile.Member.Type parameterMemberType = parameters == null ? null : parameters[i].getType();
 
                 Object arg;
                 if ("result".equalsIgnoreCase(parameterName) && parameterType.isAssignableFrom(result.getClass())) {
@@ -980,6 +986,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     }
                 } else if (parameterType == Pending[].class) {
                     arg = pendings;
+                } else if ((parameterType == Collection.class || parameterType == List.class)) {
+                    if (pendings != null && parameterMemberType != null && parameterMemberType.resolveGenericClass(0) == Pending.class) {
+                        arg = Arrays.asList(pendings);
+                    } else {
+                        arg = null;
+                    }
                 } else if (parameterType.isAssignableFrom(consumer.getClass())) {
                     arg = consumer;
                 } else if (parameterType.isAssignableFrom(pending.getClass())) {
@@ -992,6 +1004,22 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     arg = joinPoint;
                 } else if (parameterType.isAssignableFrom(result.getClass())) {
                     arg = result;
+                } else if (parameterType == Boolean.TYPE) {
+                    arg = false;
+                } else if (parameterType == Character.TYPE) {
+                    arg = '\0';
+                } else if (parameterType == Byte.TYPE) {
+                    arg = (byte) 0;
+                } else if (parameterType == Short.TYPE) {
+                    arg = (short) 0;
+                } else if (parameterType == Integer.TYPE || parameterType == Integer.class) {
+                    arg = pendingIndex;
+                } else if (parameterType == Long.TYPE || parameterType == Long.class) {
+                    arg = (long) pendingIndex;
+                } else if (parameterType == Float.TYPE) {
+                    arg = 0F;
+                } else if (parameterType == Double.TYPE) {
+                    arg = 0D;
                 } else {
                     arg = null;
                 }
@@ -1002,11 +1030,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         private <JOIN_POINT> Object invoke(BiConsumer<JOIN_POINT, List<CField>> consumer,
                                            Pending<JOIN_POINT> pending,
-                                           Pending<JOIN_POINT>[] pendings) {
+                                           Pending<JOIN_POINT>[] pendings,
+                                           int pendingIndex) {
             Object[] objects = new Object[1];
             threadSnapshot.replay(() -> {
                 try {
-                    objects[0] = staticMethodAccessor.invoke(getParameterValues(staticMethodAccessor, beanName, consumer, pending, pendings));
+                    objects[0] = staticMethodAccessor.invoke(getParameterValues(staticMethodAccessor, beanName, consumer, pending, pendings, pendingIndex));
                 } catch (Exception e) {
                     pending.groupCollectMap.aop.sneakyThrows(e);
                 }
@@ -1029,7 +1058,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             AsyncAutowired<JOIN_POINT> asyncAutowired = new AsyncAutowired<>(groupCollectMap);
             PlatformDependentUtil.submit(groupCollectMap.partition(),//AsyncAutowired
                     groupCollectMap.aop.taskExecutor,
-                    groupCollectMap.aop.taskDecorate).whenComplete(asyncAutowired);
+                    groupCollectMap.aop.taskDecorate, !isInEventLoop()).whenComplete(asyncAutowired);
             return asyncAutowired.future;
         }
 
@@ -1055,7 +1084,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         } else {
                             PlatformDependentUtil.submit(runnableList,
                                             groupCollectMap.aop.taskExecutor,
-                                            groupCollectMap.aop.taskDecorate)
+                                            groupCollectMap.aop.taskDecorate, !isInEventLoop())
                                     .whenComplete(this);
                         }
                     }
@@ -1551,12 +1580,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         private Object invokeGroupBy(String beanName, BiConsumer<JOIN_POINT, List<CField>> consumer,
-                                     Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings) {
+                                     Pending<JOIN_POINT> pending, Pending<JOIN_POINT>[] pendings, int pendingIndex) {
             ReplayStaticMethodAccessor accessor = getStaticMethodAccessor(beanName);
             if (accessor == null || accessor.staticMethodAccessor == null) {
                 return ReplayStaticMethodAccessor.NULL_INVOKE_RESULT;
             } else {
-                return accessor.invoke(consumer, pending, pendings);
+                return accessor.invoke(consumer, pending, pendings, pendingIndex);
             }
         }
     }
@@ -1775,10 +1804,11 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         private static <JOIN_POINT> List<Runnable> groupByMerge(Pending<JOIN_POINT>[] pendings, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             Map<Object, List<PendingKey<JOIN_POINT>>> groupByMap = new HashMap<>();
+            int pendingIndex = 0;
             for (Pending<JOIN_POINT> pending : pendings) {
                 for (String beanName : pending.groupCollectMap.groupCollectMap.keySet()) {
                     BiConsumer<JOIN_POINT, List<CField>> consumer = pending.groupCollectMap.getConsumer(beanName);
-                    Object groupKey = pending.groupCollectMap.invokeGroupBy(beanName, consumer, pending, pendings);
+                    Object groupKey = pending.groupCollectMap.invokeGroupBy(beanName, consumer, pending, pendings, pendingIndex);
                     groupByMap.computeIfAbsent(groupKey, e -> new ArrayList<>(5))
                             .add(new PendingKey<>(groupKey, beanName, consumer, pending, aop));
                 }

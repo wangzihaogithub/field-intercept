@@ -184,7 +184,7 @@ public class PlatformDependentUtil {
         }
     }
 
-    public static CompletableFuture<Void> submit(List<? extends Runnable> runnableList, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
+    public static CompletableFuture<Void> submit(List<? extends Runnable> runnableList, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate, boolean threadRetry) {
         if (runnableList == null) {
             return COMPLETED;
         }
@@ -195,7 +195,7 @@ public class PlatformDependentUtil {
             int runSize;
             int runIndex;
             // 减少切换线程次数（如果已经在异步线程里，当前线程跑第一个，开新线程跑其他的）
-            if (ThreadSnapshot.isUserThread()) {
+            if (!threadRetry || ThreadSnapshot.isUserThread()) {
                 if (size == 1) {
                     return submit(runnableList.get(0), taskExecutor, taskDecorate);
                 }

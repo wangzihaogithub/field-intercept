@@ -42,7 +42,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     private final AtomicBoolean initPropertiesFlag = new AtomicBoolean();
     protected boolean enabled = true;
     protected String[] beanBasePackages = {};
-    protected FieldinterceptProperties.Thread thread;
+    protected FieldinterceptProperties.ThreadPool threadPool;
     protected FieldinterceptProperties.BatchAggregation batchAggregation;
     protected Class<? extends Annotation>[] myAnnotations = new Class[0];
     protected Class<? extends ReturnFieldDispatchAop> aopClass;
@@ -168,8 +168,8 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     protected Executor taskExecutorFunction() {
-        if (thread.isEnabled()) {
-            return taskExecutor(thread);
+        if (threadPool.isEnabled()) {
+            return taskExecutor(threadPool);
         } else {
             return null;
         }
@@ -235,7 +235,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         }
     }
 
-    protected Executor taskExecutor(FieldinterceptProperties.Thread config) {
+    protected Executor taskExecutor(FieldinterceptProperties.ThreadPool config) {
         return new ThreadPoolExecutor(config.getCorePoolSize(), config.getMaxThreads(),
                 config.getKeepAliveTimeSeconds(), TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
@@ -272,7 +272,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     }
 
     public void setMetadata(FieldinterceptProperties properties) {
-        this.thread = properties.getThread();
+        this.threadPool = properties.getThreadPool();
         this.batchAggregation = properties.getBatchAggregation();
         this.beanBasePackages = properties.getBeanBasePackages();
         this.myAnnotations = properties.getMyAnnotations();
