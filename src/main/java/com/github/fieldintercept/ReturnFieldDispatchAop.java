@@ -182,9 +182,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     public static String getBeanNameArgValue(String beanName, String argName) {
-        String[] split = QUERY_PATTERN.split(beanName, 2);
-        if (split.length == 2) {
-            String[] pairs = split[1].split("&");
+        if (beanName != null && !beanName.isEmpty()) {
+            String[] split = QUERY_PATTERN.split(beanName, 2);
+            String argValues = split.length == 2 ? split[1] : split[0];
+            String[] pairs = argValues.split("&");
             for (String pair : pairs) {
                 String[] keyValue = pair.split("=", 2);
                 try {
@@ -1398,7 +1399,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
-        public CompletableFuture<Void> submitAsync() {
+        private CompletableFuture<Void> submitAsync() {
             Collection<SnapshotCompletableFuture<Object>> asyncList = getAsyncList();
             interceptAsyncMap.clear();
             if (asyncList == null || asyncList.isEmpty()) {
@@ -1408,7 +1409,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
-        private Collection<SnapshotCompletableFuture<Object>> getAsyncList() {
+        public Collection<SnapshotCompletableFuture<Object>> getAsyncList() {
             if (interceptAsyncMap.isEmpty()) {
                 return null;
             }
@@ -1812,6 +1813,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     groupByMap.computeIfAbsent(groupKey, e -> new ArrayList<>(5))
                             .add(new PendingKey<>(groupKey, beanName, consumer, pending, aop));
                 }
+                pendingIndex++;
             }
 
             int size = groupByMap.size();
