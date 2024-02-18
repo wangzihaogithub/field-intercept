@@ -1036,7 +1036,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             Object[] objects = new Object[1];
             threadSnapshot.replay(() -> {
                 try {
-                    objects[0] = staticMethodAccessor.invoke(getParameterValues(staticMethodAccessor, beanName, consumer, pending, pendings, pendingIndex));
+                    objects[0] = staticMethodAccessor.getMethod().invoke(null, getParameterValues(staticMethodAccessor, beanName, consumer, pending, pendings, pendingIndex));
                 } catch (Exception e) {
                     pending.groupCollectMap.aop.sneakyThrows(e);
                 }

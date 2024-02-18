@@ -1,6 +1,5 @@
 package com.github.fieldintercept.util;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -78,8 +77,8 @@ public class StaticMethodAccessor {
         return CACHE.computeIfAbsent(classMethodName, StaticMethodAccessor::new);
     }
 
-    public Object invoke(Object[] args) throws InvocationTargetException, IllegalAccessException {
-        return method.invoke(null, args);
+    public Method getMethod() {
+        return method;
     }
 
     public Class<?>[] getParameterTypes() {
