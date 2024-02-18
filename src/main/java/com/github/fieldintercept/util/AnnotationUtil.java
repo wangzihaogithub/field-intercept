@@ -40,8 +40,7 @@ public class AnnotationUtil {
         }
     }
 
-    public static <T extends Annotation> T findExtendsAnnotation(AnnotatedElement element, Collection<Class<? extends Annotation>> finds, Class<T> type, Map<Class<?>, Boolean> cacheMap) {
-        Annotation[] fieldAnnotations = element.getDeclaredAnnotations();
+    public static <T extends Annotation> T findExtendsAnnotation(Annotation[] fieldAnnotations, Collection<Class<? extends Annotation>> finds, Class<T> type, Map<Class<?>, Boolean> cacheMap) {
         if (fieldAnnotations != null && fieldAnnotations.length > 0) {
             if (cacheMap == null) {
                 cacheMap = new HashMap<>();

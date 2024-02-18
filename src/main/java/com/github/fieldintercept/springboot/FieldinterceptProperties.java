@@ -25,7 +25,7 @@ public class FieldinterceptProperties {
      * 线程策略
      */
     @NestedConfigurationProperty
-    private final Thread thread = new Thread();
+    private final ThreadPool threadPool = new ThreadPool();
     /**
      * 是否开启字段拦截
      */
@@ -66,8 +66,8 @@ public class FieldinterceptProperties {
         return batchAggregation;
     }
 
-    public Thread getThread() {
-        return thread;
+    public ThreadPool getThreadPool() {
+        return threadPool;
     }
 
     public boolean isEnabled() {
@@ -134,7 +134,7 @@ public class FieldinterceptProperties {
         all
     }
 
-    public static class Thread {
+    public static class ThreadPool {
         /**
          * 是否并行查询 true=用线程池并行,false=在调用者线程上串行
          */
@@ -214,23 +214,27 @@ public class FieldinterceptProperties {
          * 最大聚合个数
          * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
          */
-        private int pollMaxSize = 1000;
+        private int pollMaxSize = 500;
         /**
          * 控制批量聚合信号（发车）最大并发量，如果超过这个并发量，并且超过了队列长度(pendingQueueCapacity)，则会阻塞调用方(业务代码)继续生产自动注入任务。
          * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
          */
-        private int maxSignalConcurrentCount = 10000;
+        private int maxSignalConcurrentCount = 200;
         /**
          * 聚合阻塞队列容量
          * {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
          */
-        private int pendingQueueCapacity = 10000;
+        private int pendingQueueCapacity = 200;
         /**
          * 并发量小于这个数，直接走同步代码逻辑。
          * 超过这个并发请求的数量后，才开始聚合攒批。 否则立即执行
          * 攒批的并发量最低要求
          */
         private int thresholdMinConcurrentCount = 1;
+        /**
+         * 几个通知发车的信号线程
+         */
+        private int signalThreadCount = 1;
         /**
          * 打上ReturnFieldAop注解的方法，是否使用非阻塞返回（dubbo-server接口转异步，spring-web-server接口转异步）
          */
@@ -266,6 +270,14 @@ public class FieldinterceptProperties {
 
         public void setPollMaxSize(int pollMaxSize) {
             this.pollMaxSize = pollMaxSize;
+        }
+
+        public int getSignalThreadCount() {
+            return signalThreadCount;
+        }
+
+        public void setSignalThreadCount(int signalThreadCount) {
+            this.signalThreadCount = signalThreadCount;
         }
 
         public boolean isPendingNonBlock() {

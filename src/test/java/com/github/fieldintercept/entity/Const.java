@@ -21,7 +21,7 @@ public class Const {
     public static <JOIN_POINT> Object groupBy(String beanName, BiConsumer<?, List<CField>> consumer, JoinPoint joinPoint,
                                               Department department, ReturnFieldDispatchAop.GroupCollect<JOIN_POINT> groupCollect,
                                               ReturnFieldDispatchAop.Pending<JOIN_POINT> pending, List<ReturnFieldDispatchAop.Pending<JOIN_POINT>> pendings,
-                                              ReturnFieldDispatchAop<JOIN_POINT> aop) {
+                                              ReturnFieldDispatchAop<JOIN_POINT> aop, int q,boolean f) {
         return AccessUserUtil.getAccessUser();
     }
 

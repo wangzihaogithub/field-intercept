@@ -2,10 +2,8 @@ package com.github;
 
 import com.github.fieldintercept.ReturnFieldDispatchAop;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 
 public class CompletableFutureTest {
     public static void main(String[] args) {
@@ -22,7 +20,7 @@ public class CompletableFutureTest {
             }
 
             @Override
-            protected void aopReturningAfter(Object o, Object result) throws InvocationTargetException, IllegalAccessException, ExecutionException, InterruptedException {
+            protected void aopReturningAfter(Object o, Object result) {
 
             }
         };

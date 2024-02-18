@@ -81,14 +81,14 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
 
         CompletableFuture<Map<KEY, VALUE>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
         if (future != null) {
-            ReturnFieldDispatchAop.setAsync(cFields, this, future.thenAccept((result -> {
+            future.thenAccept((result -> {
                 if (result != null) {
                     valueMap.putAll(result);
                 }
                 if (!valueMap.isEmpty()) {
                     setProperty(cFields, valueMap);
                 }
-            })));
+            }));
         } else if (!valueMap.isEmpty()) {
             setProperty(cFields, valueMap);
         }

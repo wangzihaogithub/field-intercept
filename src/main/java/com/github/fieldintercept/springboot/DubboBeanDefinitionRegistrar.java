@@ -4,6 +4,7 @@ import com.github.fieldintercept.*;
 import com.github.fieldintercept.annotation.ServiceOptions;
 import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.PlatformDependentUtil;
+import com.github.fieldintercept.util.SnapshotCompletableFuture;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.config.ReferenceConfig;
@@ -218,7 +219,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 this.intercept = intercept;
                 this.serviceBean = serviceBean;
                 this.beanName = beanName;
-                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
+                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass().getDeclaredAnnotations(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
             }
 
             private boolean isRpc() {
@@ -506,23 +507,16 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
             private <T> T convertAsyncIfNeed(T result, List<CField> cFields, Object cacheKey) {
                 if (Boolean.TRUE.equals(reference.isAsync())) {
                     CompletableFuture<T> dubboFuture = RpcContext.getContext().getCompletableFuture();
-                    CompletableFuture<T> future = ReturnFieldDispatchAop.startAsync(cFields, cacheKey);
+                    SnapshotCompletableFuture<T> future = ReturnFieldDispatchAop.startAsync(cFields, cacheKey);
                     if (future == null) {
                         try {
                             return dubboFuture.get();
                         } catch (Exception e) {
-                            PlatformDependentUtil.sneakyThrows(e);
+                            PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(e));
                             return null;
                         }
                     } else {
-                        ReturnFieldDispatchAop.ThreadSnapshotRunnable snapshotRunnable = ReturnFieldDispatchAop.newThreadSnapshotRunnable(cFields);
-                        dubboFuture.whenComplete(((r, throwable) -> snapshotRunnable.replay(() -> {
-                            if (throwable != null) {
-                                future.completeExceptionally(throwable);
-                            } else {
-                                future.complete(r);
-                            }
-                        })));
+                        dubboFuture.whenComplete(future::complete);
                         return result;
                     }
                 } else {

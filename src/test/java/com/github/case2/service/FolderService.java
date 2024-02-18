@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 @Service(Providers.FOLDER)
 public class FolderService extends AbstractService<FolderMapper, FolderPO, Long> {
 
-    @ReturnFieldAop
+//    @ReturnFieldAop
     public List<FolderListResp> selectList(Collection<Long> ids) {
         return repository.findByIds(ids).stream()
                 .map(e -> {

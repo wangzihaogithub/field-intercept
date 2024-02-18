@@ -66,14 +66,14 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         Map<KEY, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
         CompletableFuture<Map<KEY, Object>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
         if (future != null) {
-            ReturnFieldDispatchAop.setAsync(cFields, this, future.thenAccept((result -> {
+            future.thenAccept((result -> {
                 if (result != null) {
                     nameMap.putAll(result);
                 }
                 if (!nameMap.isEmpty()) {
                     setProperty(cFields, nameMap);
                 }
-            })));
+            }));
         } else if (!nameMap.isEmpty()) {
             setProperty(cFields, nameMap);
         }

@@ -27,7 +27,7 @@ public class FindDeclaredAnnotationTest {
         VO mm1 = test.mm();
         Field userName = mm1.getClass().getDeclaredField("userName");
 
-        RouterFieldConsumer declaredAnnotation = AnnotationUtil.findExtendsAnnotation(userName, Arrays.asList(RouterFieldConsumer.class, RouterFieldConsumer.Extends.class), RouterFieldConsumer.class, new HashMap<>());
+        RouterFieldConsumer declaredAnnotation = AnnotationUtil.findExtendsAnnotation(userName.getDeclaredAnnotations(), Arrays.asList(RouterFieldConsumer.class, RouterFieldConsumer.Extends.class), RouterFieldConsumer.class, new HashMap<>());
         FieldConsumer[] value = declaredAnnotation.value();
         for (FieldConsumer fieldConsumer : value) {
             String[] strings = fieldConsumer.keyField();

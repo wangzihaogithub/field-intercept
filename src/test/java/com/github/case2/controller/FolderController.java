@@ -2,6 +2,7 @@ package com.github.case2.controller;
 
 import com.github.case2.dto.FolderListResp;
 import com.github.case2.service.FolderService;
+import com.github.fieldintercept.annotation.ReturnFieldAop;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +33,7 @@ public class FolderController {
      * @param id
      * @return
      */
+    @ReturnFieldAop
     @RequestMapping("/selectList")
     public List<FolderListResp> selectList(Long[] id) {
         if (id == null) {
