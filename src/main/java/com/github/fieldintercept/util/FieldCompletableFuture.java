@@ -102,9 +102,8 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
     public boolean snapshot(Function<Runnable, Runnable> taskDecorate) {
         if (parent != null) {
             return parent.snapshot(taskDecorate);
-        } else {
-            return super.snapshot(taskDecorate);
         }
+        return super.snapshot(taskDecorate);
     }
 
     @Override
