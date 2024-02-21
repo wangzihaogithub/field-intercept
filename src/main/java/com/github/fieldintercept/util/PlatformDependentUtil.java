@@ -325,11 +325,7 @@ public class PlatformDependentUtil {
         private Runnable task;
 
         public ThreadSnapshot(Function<Runnable, Runnable> taskDecorate) {
-            this.snapshot = taskDecorate != null ? taskDecorate.apply(() -> {
-                Runnable task = this.task;
-                this.task = null;
-                task.run();
-            }) : null;
+            this.snapshot = taskDecorate != null ? taskDecorate.apply(this::runTask) : null;
             ThreadSnapshot parent = CURRENT.get();
             if (parent != null) {
                 userThread = parent.userThread;
@@ -347,13 +343,19 @@ public class PlatformDependentUtil {
             }
         }
 
+        private void runTask() {
+            Runnable task = this.task;
+            this.task = null;
+            task.run();
+        }
+
         public boolean isAsyncThread() {
             return userThread != Thread.currentThread();
         }
 
         public void replay(Runnable task) {
             if (userThread == Thread.currentThread()) {
-                snapshot.run();
+                task.run();
             } else {
                 try {
                     CURRENT.set(this);

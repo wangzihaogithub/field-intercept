@@ -32,21 +32,22 @@ public class ApacheDubboUtil {
         return equals(context.getParameterTypes(), proxyMethod.getParameterTypes());
     }
 
-    public static <JOIN_POINT> void startAsync(ReturnFieldDispatchAop.Pending<JOIN_POINT> pending) {
+    public static <JOIN_POINT> boolean startAsync(ReturnFieldDispatchAop.Pending<JOIN_POINT> pending) {
         if (pending.isDone()) {
-            return;
+            return false;
         }
         AsyncContext asyncContext = getAsyncContext();
         pending.whenComplete((value, err) -> asyncContext.write(err != null ? err : value));
+        return true;
     }
 
     private static AsyncContext getAsyncContext() {
         RpcContext context = RpcContext.getContext();
         AsyncContext asyncContext;
-        if (!context.isAsyncStarted()) {
-            asyncContext = RpcContext.startAsync();
-        } else {
+        if (context != null && context.isAsyncStarted()) {
             asyncContext = context.getAsyncContext();
+        } else {
+            asyncContext = RpcContext.startAsync();
         }
         return asyncContext;
     }

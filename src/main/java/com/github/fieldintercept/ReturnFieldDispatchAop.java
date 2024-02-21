@@ -98,6 +98,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
     });
     private final AtomicBoolean pendingSignalThreadCreateFlag = new AtomicBoolean();
+    private final LinkedBlockingDeque<GroupCollect<JOIN_POINT>> futureChainCallList = new LinkedBlockingDeque<>(Integer.MAX_VALUE);
     private LinkedBlockingDeque<Pending<JOIN_POINT>> pendingList;
     private Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory;
     private Executor taskExecutor;
@@ -305,7 +306,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         if (result == null) {
             return;
         }
-        if (result instanceof FieldCompletableFuture && ((FieldCompletableFuture<?>) result).value() == null) {
+        if (result instanceof FieldCompletableFuture && !((FieldCompletableFuture<?>) result).isChainCall() && ((FieldCompletableFuture<?>) result).value() == null) {
             ((FieldCompletableFuture<?>) result).complete();
             return;
         }
@@ -316,37 +317,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         PlatformDependentUtil.logTrace(ReturnFieldDispatchAop.class, "afterReturning into. joinPoint={}, result={}", joinPoint, result);
         GroupCollect<JOIN_POINT> groupCollectMap = new GroupCollect<>(joinPoint, result, this);
-        try {
-            //收集返回值中的所有实体类
-            collectBean(result, groupCollectMap);
-            if (isNeedPending(joinPoint, result)) {
-                Pending<JOIN_POINT> pending = addPendingList(groupCollectMap);
-                if (result instanceof FieldCompletableFuture) {
-                    returnPendingAsync(joinPoint, (FieldCompletableFuture) result, pending);
-                } else {
-                    returnPendingSync(joinPoint, result, pending);
-                }
-            } else {
-                if (groupCollectMap.partition().isEmpty()) {// 在用户线程上，先拆分好任务
-                    groupCollectMap.close();
-                } else if (result instanceof FieldCompletableFuture) {
-                    returnRunAsync(joinPoint, (FieldCompletableFuture) result, groupCollectMap);
-                } else {
-                    returnRunSync(joinPoint, result, groupCollectMap);
-                }
-            }
-        } catch (Exception e) {
-            groupCollectMap.close();
-            sneakyThrows(e);
-        }
+        groupCollectMap.start(!isInEventLoop());
     }
 
     protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException, TimeoutException {
         if (batchAggregationPendingNonBlock) {
             boolean startAsync = false;
             if (PlatformDependentUtil.isProxyDubboProviderMethod(joinPoint)) {
-                ApacheDubboUtil.startAsync(pending);
-                startAsync = true;
+                startAsync = ApacheDubboUtil.startAsync(pending);
             }
             if (PlatformDependentUtil.isProxySpringWebControllerMethod(joinPoint)) {
                 startAsync |= SpringWebUtil.startAsync(pending);
@@ -398,15 +376,28 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         return returnFieldAopCache.findDeclaredAnnotation(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
     }
 
-    protected Pending<JOIN_POINT> addPendingList(GroupCollect<JOIN_POINT> groupCollectMap) {
+    protected Pending<JOIN_POINT> addPendingList(GroupCollect<JOIN_POINT> groupCollectMap, boolean block) {
         startPendingSignalThreadIfNeed();
-        Pending<JOIN_POINT> pending = new Pending<>(groupCollectMap, taskDecorate);
-        try {
-            pendingList.putLast(pending);
-        } catch (InterruptedException e) {
-            sneakyThrows(e);
+        Pending<JOIN_POINT> pending;
+        if (groupCollectMap.threadSnapshot != null) {
+            Pending<JOIN_POINT>[] pending0 = new Pending[1];
+            groupCollectMap.threadSnapshot.replay(() -> pending0[0] = new Pending<>(groupCollectMap, taskDecorate));
+            pending = pending0[0];
+        } else {
+            pending = new Pending<>(groupCollectMap, taskDecorate);
         }
-        return pending;
+        if (block) {
+            try {
+                pendingList.putLast(pending);
+            } catch (InterruptedException e) {
+                sneakyThrows(e);
+            }
+            return pending;
+        } else if (pendingList.offerLast(pending)) {
+            return pending;
+        } else {
+            return null;
+        }
     }
 
     public int getBatchAggregationPendingQueueCapacity() {
@@ -484,250 +475,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             Thread.currentThread().interrupt();
         }
         PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(t));
-    }
-
-    private boolean isMultiple(Class type) {
-        return typeMultipleCacheMap.computeIfAbsent(type, e -> {
-            if (Iterable.class.isAssignableFrom(e)) {
-                return true;
-            }
-            if (Map.class.isAssignableFrom(e)) {
-                return true;
-            }
-            return e.isArray();
-        });
-    }
-
-    private boolean isBasicType(Class type) {
-        return typeBasicCacheMap.computeIfAbsent(type, e -> e.isPrimitive()
-                || e == String.class
-                || Type.class.isAssignableFrom(e)
-                || Number.class.isAssignableFrom(e)
-                || Date.class.isAssignableFrom(e)
-                || Boolean.class == e
-                || TemporalAccessor.class.isAssignableFrom(e)
-                || e.isEnum());
-    }
-
-    private boolean isEntity(Class type) {
-        if (type.isInterface()) {
-            return false;
-        }
-
-        Set<List<String>> myProjectPackagePaths = getMyProjectPackagePaths();
-        if (myProjectPackagePaths.isEmpty()) {
-            return true;
-        }
-        return typeEntryCacheMap.computeIfAbsent(type, e -> {
-            Package typePackage = e.getPackage();
-            if (typePackage == null) {
-                return false;
-            }
-
-            String[] packagePaths = DOT_PATTERN.split(typePackage.getName());
-            for (List<String> myProjectPackagePath : myProjectPackagePaths) {
-                if (packagePaths.length < myProjectPackagePath.size()) {
-                    continue;
-                }
-                boolean isEntity = true;
-                for (int i = 0; i < myProjectPackagePath.size(); i++) {
-                    if (!myProjectPackagePath.get(i).equals(packagePaths[i])) {
-                        isEntity = false;
-                        break;
-                    }
-                }
-                if (isEntity) {
-                    return true;
-                }
-            }
-            return false;
-        });
-    }
-
-    /**
-     * 收集数据中的所有实体类
-     *
-     * @param root            数据
-     * @param groupCollectMap 分组收集器
-     */
-    private void collectBean(Object root, GroupCollect<JOIN_POINT> groupCollectMap) throws InvocationTargetException, IllegalAccessException {
-        ArrayList<Object> stack = new ArrayList<>();
-        Set<Object> uniqueCollectSet = Collections.newSetFromMap(new IdentityHashMap<>());
-
-        stack.add(root);
-        do {
-            Object bean = stack.remove(stack.size() - 1);
-            if (bean != null && uniqueCollectSet.add(bean)) {
-                addCollect(bean, groupCollectMap, stack);
-            }
-        } while (!stack.isEmpty());
-        groupCollectMap.collectAfter();
-    }
-
-    private void addCollect(Object bean, GroupCollect<JOIN_POINT> groupCollectMap, ArrayList<Object> stack) throws InvocationTargetException, IllegalAccessException {
-        if (bean instanceof Type) {
-            return;
-        }
-        Class<?> rootClass = bean.getClass();
-        if (isBasicType(rootClass)) {
-            return;
-        }
-
-        if (bean instanceof FieldCompletableFuture) {
-            groupCollectMap.addFuture((FieldCompletableFuture) bean);
-            stack.add(((FieldCompletableFuture<?>) bean).value());
-            return;
-        }
-
-        if (bean instanceof Iterable) {
-            if (bean instanceof Collection) {
-                stack.addAll((Collection<?>) bean);
-            } else {
-                for (Object each : (Iterable) bean) {
-                    stack.add(each);
-                }
-            }
-            return;
-        }
-
-        if (rootClass.isArray()) {
-            for (int i = 0, length = Array.getLength(bean); i < length; i++) {
-                Object each = Array.get(bean, i);
-                stack.add(each);
-            }
-            return;
-        }
-
-        boolean isEntity = isEntity(rootClass);
-
-        if (!isEntity && bean instanceof Map) {
-            stack.addAll(((Map) bean).values());
-            return;
-        }
-
-        BeanMap beanHandler = null;
-        Map<String, PropertyDescriptor> propertyDescriptor = BeanMap.findPropertyDescriptor(rootClass);
-        for (PropertyDescriptor descriptor : propertyDescriptor.values()) {
-            // 支持getter方法明确表示get返回的结果需要注入
-            Method readMethod = descriptor.getReadMethod();
-            if (isEntity && readMethod != null && returnFieldAopCache.findDeclaredAnnotation(readMethod) != null) {
-                stack.add(readMethod.invoke(bean));
-                continue;
-            }
-
-            Field field = BeanMap.getField(descriptor);
-            if (field == null) {
-                continue;
-            }
-            Class<?> declaringClass = field.getDeclaringClass();
-            if (declaringClass == Object.class) {
-                continue;
-            }
-
-            if (declaringClass != rootClass && !isEntity(declaringClass)) {
-                continue;
-            }
-
-            int modifiers = field.getModifiers();
-            if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers) || Modifier.isTransient(modifiers)) {
-                continue;
-            }
-
-            //路由消费字段
-            RouterFieldConsumer routerFieldConsumer = routerFieldConsumerCache.findDeclaredAnnotation(field);
-            String routerField;
-            if (routerFieldConsumer != null && (routerField = routerFieldConsumer.routerField()).length() > 0) {
-                if (beanHandler == null) {
-                    beanHandler = new BeanMap(bean);
-                }
-                if (!beanHandler.containsKey(routerField)) {
-                    PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerField, bean);
-                }
-                Object routerFieldData = beanHandler.get(routerField);
-                String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
-                if (Objects.equals(routerFieldDataStr, "null")) {
-                    routerFieldDataStr = null;
-                }
-                FieldConsumer choseFieldConsumer = null;
-                for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
-                    String type = fieldConsumer.type();
-                    if (Objects.equals(routerFieldDataStr, type)) {
-                        choseFieldConsumer = fieldConsumer;
-                        break;
-                    }
-                }
-                if (choseFieldConsumer == null) {
-                    choseFieldConsumer = routerFieldConsumer.defaultElse();
-                }
-                if (choseFieldConsumer.value().length() > 0) {
-                    groupCollectMap.addField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer);
-                }
-            }
-
-            //普通消费字段
-            FieldConsumer fieldConsumer = fieldConsumerCache.findDeclaredAnnotation(field);
-            if (fieldConsumer != null) {
-                if (beanHandler == null) {
-                    beanHandler = new BeanMap(bean);
-                }
-                groupCollectMap.addField(fieldConsumer.value(), beanHandler, field, fieldConsumer);
-                continue;
-            }
-
-            //枚举消费字段
-            EnumFieldConsumer enumFieldConsumer = enumFieldConsumerCache.findDeclaredAnnotation(field);
-            if (enumFieldConsumer != null) {
-                if (beanHandler == null) {
-                    beanHandler = new BeanMap(bean);
-                }
-                groupCollectMap.addField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer);
-                continue;
-            }
-
-            //自定义消费字段
-            for (Class<? extends Annotation> myAnnotationClass : annotations) {
-                Annotation myAnnotation = field.getDeclaredAnnotation(myAnnotationClass);
-                if (myAnnotation != null) {
-                    if (beanHandler == null) {
-                        beanHandler = new BeanMap(bean);
-                    }
-                    String name = getMyAnnotationConsumerName(myAnnotationClass);
-                    groupCollectMap.addField(name, beanHandler, field, myAnnotation);
-                }
-            }
-
-
-            Class<?> fieldType = field.getType();
-            boolean isMultiple = isMultiple(fieldType);
-            if (isMultiple) {
-                try {
-                    // 防止触发 getter方法, 忽略private, 强行取字段值
-                    Object fieldData = getFieldValue(field, bean);
-                    stack.add(fieldData);
-                    continue;
-                } catch (Exception e) {
-                    sneakyThrows(e);
-                }
-            }
-
-            boolean isFieldEntity = !isBasicType(fieldType) && isEntity(fieldType);
-            if (isFieldEntity) {
-                try {
-                    // 防止触发 getter方法, 忽略private, 强行取字段值
-                    Object fieldData = getFieldValue(field, bean);
-                    if (fieldData == null) {
-                        continue;
-                    }
-                    Class<?> fieldDataClass = fieldData.getClass();
-                    if (Boolean.TRUE.equals(skipFieldClassPredicateCache.computeIfAbsent(fieldDataClass, type -> skipFieldClassPredicate.test(fieldDataClass)))) {
-                        continue;
-                    }
-                    stack.add(fieldData);
-                } catch (Exception e) {
-                    sneakyThrows(e);
-                }
-            }
-        }
     }
 
     private void startPendingSignalThreadIfNeed() {
@@ -1052,11 +799,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private AsyncAutowired(GroupCollect<JOIN_POINT> groupCollectMap) {
             this.groupCollectMap = groupCollectMap;
             this.future = SnapshotCompletableFuture.newInstance(groupCollectMap.aop.taskDecorate);
-            this.future.whenComplete(((unused, throwable) -> groupCollectMap.close()));
         }
 
         public static <JOIN_POINT> CompletableFuture<Void> start(GroupCollect<JOIN_POINT> groupCollectMap) throws InterruptedException {
             AsyncAutowired<JOIN_POINT> asyncAutowired = new AsyncAutowired<>(groupCollectMap);
+            asyncAutowired.future.whenComplete(((unused, throwable) -> groupCollectMap.close()));
+
             PlatformDependentUtil.submit(groupCollectMap.partition(),//AsyncAutowired
                     groupCollectMap.aop.taskExecutor,
                     groupCollectMap.aop.taskDecorate, !isInEventLoop()).whenComplete(asyncAutowired);
@@ -1078,7 +826,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         future.complete(null);
                     } else {
                         //收集返回值中的所有实体类
-                        groupCollectMap.aop.collectBean(next, groupCollectMap);
+                        groupCollectMap.collectBean(next);
                         List<AutowiredRunnable<JOIN_POINT>> runnableList = groupCollectMap.partition();//AsyncAutowired next
                         if (runnableList.isEmpty()) {
                             future.complete(null);
@@ -1105,6 +853,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final String consumerName;
         private final BiConsumer<JOIN_POINT, List<CField>> consumer;
         private final Runnable autowiredAfter;
+        private final AtomicBoolean releaseFlag = new AtomicBoolean();
 
         private AutowiredRunnable(ReturnFieldDispatchAop<JOIN_POINT> aop, JOIN_POINT joinPoint, Object result,
                                   int depth, List<CField> fieldList,
@@ -1123,12 +872,16 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         private void release(ReturnFieldDispatchAop<JOIN_POINT> aop) {
-            aop.currentSubmitRunnableCounter.decrementAndGet();
-            try {
-                aop.autowiredRunnableLock.lock();
-                aop.autowiredRunnableCondition.signalAll();
-            } finally {
-                aop.autowiredRunnableLock.unlock();
+            if (releaseFlag.compareAndSet(false, true)) {
+                aop.currentSubmitRunnableCounter.decrementAndGet();
+                try {
+                    aop.autowiredRunnableLock.lock();
+                    aop.autowiredRunnableCondition.signalAll();
+                } finally {
+                    aop.autowiredRunnableLock.unlock();
+                }
+            } else {
+                ;
             }
         }
 
@@ -1273,15 +1026,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         protected final Set<Object> visitObjectIdSet = new HashSet<>();
         protected final Map<String, BiConsumer<JOIN_POINT, List<CField>>> interceptCacheMap = new HashMap<>(5);
         protected final ReturnFieldDispatchAop<JOIN_POINT> aop;
-
         protected final Map<String, ConcurrentHashMap<Object, Map<Object, Object>>> interceptLocalCacheMap = new ConcurrentHashMap<>(5);
         protected final Map<String, ConcurrentHashMap<Object, SnapshotCompletableFuture<Object>>> interceptAsyncMap = new ConcurrentHashMap<>(5);
+        private final AtomicBoolean collectFlag = new AtomicBoolean();
         private final JOIN_POINT joinPoint;
         private final Object result;
         private final AtomicInteger partitionCounter = new AtomicInteger();
         private final AtomicBoolean closeFlag = new AtomicBoolean();
         private int depth = 1;
+        private int ref;
         private List<AutowiredRunnable<JOIN_POINT>> partition;
+        private ThreadSnapshot threadSnapshot;
 
         public GroupCollect(JOIN_POINT joinPoint, Object result, ReturnFieldDispatchAop<JOIN_POINT> aop) {
             this.joinPoint = joinPoint;
@@ -1300,6 +1055,18 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         public ReturnFieldDispatchAop<JOIN_POINT> getAop() {
             return aop;
+        }
+
+        public int refIncrement() {
+            return ref++;
+        }
+
+        int refDecrement() {
+            return ref--;
+        }
+
+        public int ref() {
+            return ref;
         }
 
         public int getDepth() {
@@ -1345,6 +1112,301 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             });
         }
 
+        public boolean start(boolean block) {
+            try {
+                //收集返回值中的所有实体类
+                collectBean(result);
+                // 需要批量聚合?
+                if (aop.isNeedPending(joinPoint, result)) {
+                    // 入聚合队列
+                    Pending<JOIN_POINT> pending = aop.addPendingList(this, block);
+                    if (pending == null) {
+                        return false;
+                    } else if (result instanceof FieldCompletableFuture) {
+                        // 异步获取结果
+                        aop.returnPendingAsync(joinPoint, (FieldCompletableFuture) result, pending);
+                    } else if (block) {
+                        // 同步获取结果
+                        aop.returnPendingSync(joinPoint, result, pending);
+                    }
+                } else {
+                    // 拆分任务
+                    if (partition().isEmpty()) {
+                        // 没有任务
+                        close();
+                    } else if (result instanceof FieldCompletableFuture) {
+                        // 异步获取结果
+                        aop.returnRunAsync(joinPoint, (FieldCompletableFuture) result, this);
+                    } else if (block) {
+                        // 同步获取结果
+                        aop.returnRunSync(joinPoint, result, this);
+                    }
+                }
+            } catch (Exception e) {
+                close();
+                aop.sneakyThrows(e);
+            }
+            return true;
+        }
+
+        public <T> FieldCompletableFuture<T> autowiredFieldValue(FieldCompletableFuture<T> result) throws InterruptedException, InvocationTargetException, IllegalAccessException {
+            GroupCollect<JOIN_POINT> groupCollectMap = new GroupCollect<>(joinPoint, result, aop);
+            groupCollectMap.interceptLocalCacheMap.putAll(interceptLocalCacheMap);
+            groupCollectMap.staticMethodAccessorMap.putAll(staticMethodAccessorMap);
+            groupCollectMap.visitObjectIdSet.addAll(visitObjectIdSet);
+            groupCollectMap.interceptCacheMap.putAll(interceptCacheMap);
+            if (!groupCollectMap.start(false)) {
+                groupCollectMap.threadSnapshot = new ThreadSnapshot(groupCollectMap.aop.taskDecorate);
+                aop.futureChainCallList.putLast(groupCollectMap);
+            }
+            return result;
+        }
+
+        /**
+         * 收集数据中的所有实体类
+         *
+         * @param root 数据
+         */
+        public void collectBean(Object root) throws InvocationTargetException, IllegalAccessException {
+            if (collectFlag.compareAndSet(false, true)) {
+                ArrayList<Object> stack = new ArrayList<>();
+                Set<Object> uniqueCollectSet = Collections.newSetFromMap(new IdentityHashMap<>());
+
+                stack.add(root);
+                do {
+                    Object bean = stack.remove(stack.size() - 1);
+                    if (bean != null && uniqueCollectSet.add(bean)) {
+                        addCollect(bean, stack);
+                    }
+                } while (!stack.isEmpty());
+                collectAfter();
+            }
+        }
+
+        private void addCollect(Object bean, ArrayList<Object> stack) throws InvocationTargetException, IllegalAccessException {
+            if (bean instanceof Type) {
+                return;
+            }
+            Class<?> rootClass = bean.getClass();
+            if (isBasicType(rootClass)) {
+                return;
+            }
+
+            if (bean instanceof FieldCompletableFuture) {
+                addFuture((FieldCompletableFuture) bean);
+                stack.add(((FieldCompletableFuture<?>) bean).value());
+                return;
+            }
+
+            if (bean instanceof Iterable) {
+                if (bean instanceof Collection) {
+                    stack.addAll((Collection<?>) bean);
+                } else {
+                    for (Object each : (Iterable) bean) {
+                        stack.add(each);
+                    }
+                }
+                return;
+            }
+
+            if (rootClass.isArray()) {
+                for (int i = 0, length = Array.getLength(bean); i < length; i++) {
+                    Object each = Array.get(bean, i);
+                    stack.add(each);
+                }
+                return;
+            }
+
+            boolean isEntity = isEntity(rootClass);
+
+            if (!isEntity && bean instanceof Map) {
+                stack.addAll(((Map) bean).values());
+                return;
+            }
+
+            BeanMap beanHandler = null;
+            Map<String, PropertyDescriptor> propertyDescriptor = BeanMap.findPropertyDescriptor(rootClass);
+            for (PropertyDescriptor descriptor : propertyDescriptor.values()) {
+                // 支持getter方法明确表示get返回的结果需要注入
+                Method readMethod = descriptor.getReadMethod();
+                if (isEntity && readMethod != null && aop.returnFieldAopCache.findDeclaredAnnotation(readMethod) != null) {
+                    stack.add(readMethod.invoke(bean));
+                    continue;
+                }
+
+                Field field = BeanMap.getField(descriptor);
+                if (field == null) {
+                    continue;
+                }
+                Class<?> declaringClass = field.getDeclaringClass();
+                if (declaringClass == Object.class) {
+                    continue;
+                }
+
+                if (declaringClass != rootClass && !isEntity(declaringClass)) {
+                    continue;
+                }
+
+                int modifiers = field.getModifiers();
+                if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers) || Modifier.isTransient(modifiers)) {
+                    continue;
+                }
+
+                //路由消费字段
+                RouterFieldConsumer routerFieldConsumer = aop.routerFieldConsumerCache.findDeclaredAnnotation(field);
+                String routerField;
+                if (routerFieldConsumer != null && (routerField = routerFieldConsumer.routerField()).length() > 0) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    if (!beanHandler.containsKey(routerField)) {
+                        PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "RouterFieldConsumer not found field, class={},routerField={}, data={}", rootClass, routerField, bean);
+                    }
+                    Object routerFieldData = beanHandler.get(routerField);
+                    String routerFieldDataStr = routerFieldData == null ? null : routerFieldData.toString();
+                    if (Objects.equals(routerFieldDataStr, "null")) {
+                        routerFieldDataStr = null;
+                    }
+                    FieldConsumer choseFieldConsumer = null;
+                    for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
+                        String type = fieldConsumer.type();
+                        if (Objects.equals(routerFieldDataStr, type)) {
+                            choseFieldConsumer = fieldConsumer;
+                            break;
+                        }
+                    }
+                    if (choseFieldConsumer == null) {
+                        choseFieldConsumer = routerFieldConsumer.defaultElse();
+                    }
+                    if (choseFieldConsumer.value().length() > 0) {
+                        addField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer);
+                    }
+                }
+
+                //普通消费字段
+                FieldConsumer fieldConsumer = aop.fieldConsumerCache.findDeclaredAnnotation(field);
+                if (fieldConsumer != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    addField(fieldConsumer.value(), beanHandler, field, fieldConsumer);
+                    continue;
+                }
+
+                //枚举消费字段
+                EnumFieldConsumer enumFieldConsumer = aop.enumFieldConsumerCache.findDeclaredAnnotation(field);
+                if (enumFieldConsumer != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    addField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer);
+                    continue;
+                }
+
+                //自定义消费字段
+                for (Class<? extends Annotation> myAnnotationClass : aop.annotations) {
+                    Annotation myAnnotation = field.getDeclaredAnnotation(myAnnotationClass);
+                    if (myAnnotation != null) {
+                        if (beanHandler == null) {
+                            beanHandler = new BeanMap(bean);
+                        }
+                        String name = aop.getMyAnnotationConsumerName(myAnnotationClass);
+                        addField(name, beanHandler, field, myAnnotation);
+                    }
+                }
+
+
+                Class<?> fieldType = field.getType();
+                boolean isMultiple = isMultiple(fieldType);
+                if (isMultiple) {
+                    try {
+                        // 防止触发 getter方法, 忽略private, 强行取字段值
+                        Object fieldData = aop.getFieldValue(field, bean);
+                        stack.add(fieldData);
+                        continue;
+                    } catch (Exception e) {
+                        aop.sneakyThrows(e);
+                    }
+                }
+
+                boolean isFieldEntity = !isBasicType(fieldType) && isEntity(fieldType);
+                if (isFieldEntity) {
+                    try {
+                        // 防止触发 getter方法, 忽略private, 强行取字段值
+                        Object fieldData = aop.getFieldValue(field, bean);
+                        if (fieldData == null) {
+                            continue;
+                        }
+                        Class<?> fieldDataClass = fieldData.getClass();
+                        if (Boolean.TRUE.equals(aop.skipFieldClassPredicateCache.computeIfAbsent(fieldDataClass, type -> aop.skipFieldClassPredicate.test(fieldDataClass)))) {
+                            continue;
+                        }
+                        stack.add(fieldData);
+                    } catch (Exception e) {
+                        aop.sneakyThrows(e);
+                    }
+                }
+            }
+        }
+
+        private boolean isMultiple(Class type) {
+            return aop.typeMultipleCacheMap.computeIfAbsent(type, e -> {
+                if (Iterable.class.isAssignableFrom(e)) {
+                    return true;
+                }
+                if (Map.class.isAssignableFrom(e)) {
+                    return true;
+                }
+                return e.isArray();
+            });
+        }
+
+        public boolean isBasicType(Class type) {
+            return aop.typeBasicCacheMap.computeIfAbsent(type, e -> e.isPrimitive()
+                    || e == String.class
+                    || Type.class.isAssignableFrom(e)
+                    || Number.class.isAssignableFrom(e)
+                    || Date.class.isAssignableFrom(e)
+                    || Boolean.class == e
+                    || TemporalAccessor.class.isAssignableFrom(e)
+                    || e.isEnum());
+        }
+
+        private boolean isEntity(Class type) {
+            if (type.isInterface()) {
+                return false;
+            }
+
+            Set<List<String>> myProjectPackagePaths = aop.getMyProjectPackagePaths();
+            if (myProjectPackagePaths.isEmpty()) {
+                return true;
+            }
+            return aop.typeEntryCacheMap.computeIfAbsent(type, e -> {
+                Package typePackage = e.getPackage();
+                if (typePackage == null) {
+                    return false;
+                }
+
+                String[] packagePaths = DOT_PATTERN.split(typePackage.getName());
+                for (List<String> myProjectPackagePath : myProjectPackagePaths) {
+                    if (packagePaths.length < myProjectPackagePath.size()) {
+                        continue;
+                    }
+                    boolean isEntity = true;
+                    for (int i = 0; i < myProjectPackagePath.size(); i++) {
+                        if (!myProjectPackagePath.get(i).equals(packagePaths[i])) {
+                            isEntity = false;
+                            break;
+                        }
+                    }
+                    if (isEntity) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+
         private void parseStaticMethodAccessor() {
             for (String beanName : groupCollectMap.keySet()) {
                 getStaticMethodAccessor(beanName);
@@ -1373,7 +1435,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
          */
         public Map<Object, Object> getLocalCache(String beanName, Object cacheKey) {
             ConcurrentHashMap<Object, Map<Object, Object>> map = interceptLocalCacheMap.computeIfAbsent(beanName, e -> new ConcurrentHashMap<>(2));
-            return map.computeIfAbsent(cacheKey, e -> new ConcurrentHashMap<>(2));
+            return map.computeIfAbsent(cacheKey, e -> Collections.synchronizedMap(new HashMap<>(5)));
         }
 
         /**
@@ -1444,6 +1506,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
          */
         private void addFuture(FieldCompletableFuture<?> bean) {
             bean.snapshot(aop.taskDecorate);//addFuture
+            bean.access(this);
             completableFutureList.add(bean);
         }
 
@@ -1552,6 +1615,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
             // 清空处理过的
             groupCollectMap.clear();
+            collectFlag.set(false);
             depth++;
             return next;
         }
@@ -1563,16 +1627,16 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private void destroy() {
             // call gc
             groupCollectMap.clear();
-            visitObjectIdSet.clear();
             completableFutureList.clear();
+            interceptAsyncMap.clear();
+            visitObjectIdSet.clear();
             interceptCacheMap.clear();
             interceptLocalCacheMap.clear();
             staticMethodAccessorMap.clear();
-            interceptAsyncMap.clear();
         }
 
         void close() {
-            if (closeFlag.compareAndSet(false, true)) {
+            if (refDecrement() == 0 && closeFlag.compareAndSet(false, true)) {
                 for (FieldCompletableFuture<?> future : completableFutureList) {
                     future.complete();
                 }
@@ -1783,6 +1847,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private static final AtomicInteger id = new AtomicInteger();
         private final ReturnFieldDispatchAop<JOIN_POINT> aop;
         private final ArrayList<Pending<JOIN_POINT>> pollList;
+        private final int chainCallQueueSize = 200;
+        private final ArrayList<GroupCollect<JOIN_POINT>> chainCallPollList = new ArrayList<>(chainCallQueueSize);
         private final Lock lock = new ReentrantLock();
         private final Condition condition = lock.newCondition();
         // 当前信号数量
@@ -1833,16 +1899,17 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
         }
 
-        @Override
-        public String toString() {
-            //            {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
-            return "PendingSignalThread{" +
-                    "currentSignalCounter=" + currentSignalCounter +
-                    ", totalSignalCounter=" + totalSignalCounter +
-                    ", totalSignalPendingCounter=" + totalSignalPendingCounter +
-                    ", totalPollTimeMillis=" + totalPollTimeMillis +
-                    ", totalSignalQueueCounter=" + totalSignalQueueCounter +
-                    '}';
+        private void submitChainCall() {
+            if (chainCallPollList.isEmpty()) {
+                aop.futureChainCallList.drainTo(chainCallPollList, chainCallQueueSize);
+            }
+            while (!chainCallPollList.isEmpty()) {
+                GroupCollect<JOIN_POINT> remove = chainCallPollList.remove(chainCallPollList.size() - 1);
+                if (!remove.start(false)) {
+                    chainCallPollList.add(remove);
+                    break;
+                }
+            }
         }
 
         @Override
@@ -1891,6 +1958,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         }
 
                         while (currentSignalCounter.sum() > aop.getBatchAggregationMaxSignalConcurrentCount()) {
+                            submitChainCall();
                             try {
                                 lock.lock();
                                 condition.await(10, TimeUnit.MILLISECONDS);
@@ -1899,12 +1967,25 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                             }
                         }
                     }
+                    submitChainCall();
                 } catch (InterruptedException e) {
                     return;
                 } catch (Throwable e) {
                     PlatformDependentUtil.logWarn(ReturnFieldDispatchAop.class, "PendingSignal Throwable error = {}", e, e);
                 }
             }
+        }
+
+        @Override
+        public String toString() {
+            //            {pollMilliseconds}毫秒内，有{pollMinSize}个就发车，一趟车最多{pollMaxSize}人，最多同时发{maxSignalConcurrentCount}辆车，等下次发车的排队人数为{pendingQueueCapacity}
+            return "PendingSignalThread{" +
+                    "currentSignalCounter=" + currentSignalCounter +
+                    ", totalSignalCounter=" + totalSignalCounter +
+                    ", totalSignalPendingCounter=" + totalSignalPendingCounter +
+                    ", totalPollTimeMillis=" + totalPollTimeMillis +
+                    ", totalSignalQueueCounter=" + totalSignalQueueCounter +
+                    '}';
         }
     }
 
