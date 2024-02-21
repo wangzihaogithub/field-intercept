@@ -95,17 +95,18 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
     }
 
     private Map<KEY, VALUE> cacheSelectValueMapByKeys(List<CField> cFields, Set<KEY> keys) {
-        Map<KEY, VALUE> valueMap = new LinkedHashMap<>();
+        Map<KEY, VALUE> valueMap = new LinkedHashMap<>((int) (keys.size() / 0.75F + 1));
         Map<KEY, VALUE> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
-        for (KEY key : keys) {
-            VALUE value = currentLocalCache.get(key);
-            if (value != null) {
-                valueMap.put(key, value);
+        if (currentLocalCache != null) {
+            for (KEY key : keys) {
+                if (currentLocalCache.containsKey(key)) {
+                    valueMap.put(key, currentLocalCache.get(key));
+                }
             }
-        }
-        // 全部命中
-        if (valueMap.size() == keys.size()) {
-            return valueMap;
+            // 全部命中
+            if (valueMap.size() == keys.size()) {
+                return valueMap;
+            }
         }
 
         // 未命中的查库
@@ -118,7 +119,9 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
             valueMap.putAll(loadValueMap);
 
             // 放入缓存
-            currentLocalCache.putAll(loadValueMap);
+            if (currentLocalCache != null) {
+                currentLocalCache.putAll(loadValueMap);
+            }
         }
         return valueMap;
     }

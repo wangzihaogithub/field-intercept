@@ -94,6 +94,9 @@ public class SpringWebUtil {
     }
 
     public static <JOIN_POINT> boolean startAsync(ReturnFieldDispatchAop.Pending<JOIN_POINT> pending) {
+        if (pending.isDone()) {
+            return false;
+        }
         HttpServletRequest request = getCurrentRequest();
         if (request != null) {
             request.setAttribute(ATTR_NAME_PENDING, pending);
