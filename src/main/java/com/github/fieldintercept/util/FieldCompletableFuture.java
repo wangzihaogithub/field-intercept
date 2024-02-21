@@ -44,7 +44,7 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
         this.value = result;
         this.parentDone = true;
         if (throwable != null) {
-            super.completeExceptionally(throwable);
+            super.completeExceptionally(PlatformDependentUtil.unwrap(throwable));
             return;
         }
         if (!isNeedAutowired(result)) {
