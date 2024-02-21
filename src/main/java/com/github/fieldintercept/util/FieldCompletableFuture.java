@@ -60,7 +60,7 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
             } else {
                 future.whenComplete((unused, throwable1) -> {
                     if (throwable1 != null) {
-                        FieldCompletableFuture.super.completeExceptionally(throwable1);
+                        FieldCompletableFuture.super.completeExceptionally(PlatformDependentUtil.unwrap(throwable1));
                     } else {
                         FieldCompletableFuture.super.complete(result);
                     }
