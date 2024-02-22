@@ -2,12 +2,12 @@ package com.github.fieldintercept;
 
 import com.github.fieldintercept.util.AnnotationUtil;
 import com.github.fieldintercept.util.BeanMap;
+import com.github.fieldintercept.util.SnapshotCompletableFuture;
 import com.github.fieldintercept.util.TypeUtil;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 /**
@@ -44,6 +44,10 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         this.selectNameMapByKeys = selectNameMapByKeys;
     }
 
+    private static String cacheKey(Object key) {
+        return String.valueOf(key);
+    }
+
     public Class<KEY> getKeyClass() {
         return keyClass;
     }
@@ -63,40 +67,42 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
             return;
         }
 
-        Map<KEY, Object> nameMap = cacheSelectNameMapByKeys(cFields, keyDataList);
-        CompletableFuture<Map<KEY, Object>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
+        Map<String, Object> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
+        Map<KEY, Object> nameMap = cacheSelectNameMapByKeys(currentLocalCache, cFields, keyDataList);
+
+        SnapshotCompletableFuture<Map<KEY, Object>> future = ReturnFieldDispatchAop.getAsync(cFields, this);
         if (future != null) {
-            future.thenAccept((result -> {
-                if (result != null) {
+            future.addBeforeCompleteListener((result, throwable) -> {
+                if (result != null && !result.isEmpty()) {
                     nameMap.putAll(result);
+                    // 放入缓存
+                    putCache(currentLocalCache, result);
                 }
                 if (!nameMap.isEmpty()) {
                     setProperty(cFields, nameMap);
                 }
-            }));
+            });
         } else if (!nameMap.isEmpty()) {
             setProperty(cFields, nameMap);
         }
     }
 
-    private Map<KEY, Object> cacheSelectNameMapByKeys(List<CField> cFields, Set<KEY> keys) {
-        Map<KEY, Object> valueMap = new LinkedHashMap<>((int) (keys.size() / 0.75F + 1));
-        Map<KEY, Object> currentLocalCache = ReturnFieldDispatchAop.getLocalCache(cFields, this);
-        if (currentLocalCache != null) {
-            for (KEY key : keys) {
-                if (currentLocalCache.containsKey(key)) {
-                    valueMap.put(key, currentLocalCache.get(key));
-                }
-            }
-            // 全部命中
-            if (valueMap.size() == keys.size()) {
-                return valueMap;
-            }
+    private Map<KEY, Object> cacheSelectNameMapByKeys(Map<String, Object> currentLocalCache, List<CField> cFields, Set<KEY> keys) {
+        // 从缓存中加载
+        Map<KEY, Object> valueMap = loadCache(currentLocalCache, keys);
+        // 全部命中
+        if (valueMap.size() == keys.size()) {
+            return valueMap;
         }
 
         // 未命中的查库
-        Set<KEY> remainingCacheMissKeys = new LinkedHashSet<>(keys);
-        remainingCacheMissKeys.removeAll(valueMap.keySet());
+        Set<KEY> remainingCacheMissKeys;
+        if (valueMap.isEmpty()) {
+            remainingCacheMissKeys = keys;
+        } else {
+            remainingCacheMissKeys = new LinkedHashSet<>(keys);
+            remainingCacheMissKeys.removeAll(valueMap.keySet());
+        }
 
         // 查库与缓存数据合并
         Map<KEY, ?> loadValueMap = selectObjectMapByKeys(cFields, remainingCacheMissKeys);
@@ -104,11 +110,31 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
             valueMap.putAll(loadValueMap);
 
             // 放入缓存
-            if (currentLocalCache != null) {
-                currentLocalCache.putAll(loadValueMap);
+            putCache(currentLocalCache, loadValueMap);
+        }
+        return valueMap;
+    }
+
+    private Map<KEY, Object> loadCache(Map<String, Object> currentLocalCache, Set<KEY> keys) {
+        Map<KEY, Object> valueMap = new LinkedHashMap<>((int) (keys.size() / 0.75F + 1));
+        if (currentLocalCache != null && !currentLocalCache.isEmpty()) {
+            for (KEY key : keys) {
+                String stringKey = cacheKey(key);
+                if (currentLocalCache.containsKey(stringKey)) {
+                    valueMap.put(key, currentLocalCache.get(stringKey));
+                }
             }
         }
         return valueMap;
+    }
+
+    private void putCache(Map<String, Object> currentLocalCache, Map<KEY, ?> valueMap) {
+        // 放入缓存
+        if (currentLocalCache != null) {
+            for (Map.Entry<KEY, ?> entry : valueMap.entrySet()) {
+                currentLocalCache.put(cacheKey(entry.getKey()), entry.getValue());
+            }
+        }
     }
 
     /**

@@ -119,6 +119,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         aop.setBatchAggregationPendingNonBlock(batchAggregation.isPendingNonBlock());
         aop.setBatchAggregationMaxSignalConcurrentCount(batchAggregation.getMaxSignalConcurrentCount());
         aop.setBatchAggregationPendingSignalThreadCount(batchAggregation.getSignalThreadCount());
+        aop.setChainCallUseAggregation(batchAggregation.isChainCallUseAggregation());
 
         // 注册判断是否是bean
         for (String beanBasePackage : beanBasePackages) {

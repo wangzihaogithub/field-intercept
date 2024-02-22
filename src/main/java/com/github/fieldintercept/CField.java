@@ -128,26 +128,21 @@ public class CField {
         if (object == null) {
             return;
         }
-        Object value = null;
         try {
-            value = TypeUtil.cast(object, field.getType());
+            Object value = TypeUtil.cast(object, field.getType(), true);
+            if (value != null) {
+                if (beanHandler.set(field.getName(), value)) {
+                    this.value = value;
+                    this.setValue = true;
+                }
+            }
         } catch (Exception e) {
-            try {
-                value = BeanUtil.transform(object, field.getType());
-            } catch (Exception e1) {
-                PlatformDependentUtil.logError(CField.class, "ReturnFieldDispatchAop on setValue. Type cast error. field={}, data='{}', sourceType={}, targetType={}",
-                        bean.getClass().getSimpleName() + "[" + field.getName() + "]",
-                        object,
-                        object.getClass().getSimpleName(),
-                        field.getType().getSimpleName(),
-                        e);
-            }
-        }
-        if (value != null) {
-            if (beanHandler.set(field.getName(), value)) {
-                this.value = value;
-                this.setValue = true;
-            }
+            PlatformDependentUtil.logError(CField.class, "ReturnFieldDispatchAop on setValue. Type cast error. field={}, data='{}', sourceType={}, targetType={}",
+                    bean.getClass().getSimpleName() + "[" + field.getName() + "]",
+                    object,
+                    object.getClass().getSimpleName(),
+                    field.getType().getSimpleName(),
+                    e);
         }
     }
 

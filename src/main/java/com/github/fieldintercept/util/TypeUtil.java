@@ -700,7 +700,7 @@ public class TypeUtil {
      * @return 转换后的对象
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public static <T> T cast(Object obj, Class<T> clazz) {
+    public static <T> T cast(Object obj, Class<T> clazz, boolean transform) {
         if (obj == null) {
             if (clazz == int.class) {
                 return (T) Integer.valueOf(0);
@@ -737,7 +737,7 @@ public class TypeUtil {
                 int index = 0;
                 Object array = Array.newInstance(clazz.getComponentType(), collection.size());
                 for (Object item : collection) {
-                    Object value = cast(item, clazz.getComponentType());
+                    Object value = cast(item, clazz.getComponentType(), transform);
                     Array.set(array, index, value);
                     index++;
                 }
@@ -842,8 +842,15 @@ public class TypeUtil {
                 return (T) toLocale(strVal);
             }
         }
-//        return BeanUtil.transform(obj, clazz);
-        throw new IllegalArgumentException("can not cast to : " + clazz.getName());
+        if (transform) {
+            return BeanUtil.transform(obj, clazz);
+        } else {
+            throw new IllegalArgumentException("can not cast to : " + clazz.getName());
+        }
+    }
+
+    public static <T> T cast(Object obj, Class<T> clazz) {
+        return cast(obj, clazz, false);
     }
 
     public static Locale toLocale(String strVal) {
