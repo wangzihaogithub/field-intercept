@@ -4,7 +4,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
-import java.util.Collection;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -234,29 +234,9 @@ public class PlatformDependentUtil {
         }
     }
 
-    public static <T> CompletableFuture<Void> allOf(Collection<SnapshotCompletableFuture<T>> futureList, Function<Runnable, Runnable> taskDecorate) {
-        if (futureList == null || futureList.isEmpty()) {
-            return COMPLETED;
-        }
-        CompletableFuture<Void> end = new CompletableFuture<>();//futureList是SnapshotCompletableFuture
-        AtomicInteger count = new AtomicInteger(futureList.size());
-        for (CompletableFuture<?> f : futureList) {
-            f.whenComplete(((unused, throwable) -> {
-                if (!end.isDone()) {
-                    if (throwable != null) {
-                        end.completeExceptionally(throwable);
-                    } else if (count.decrementAndGet() == 0) {
-                        end.complete(null);
-                    }
-                }
-            }));
-        }
-        return end;
-    }
-
     private static CompletableFuture<Void> submit(Runnable runnable, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
         if (taskExecutor != null) {
-            RunnableCompletableFuture<Void> runnableFuture = new RunnableCompletableFuture<>(taskDecorate, runnable);
+            RunnableCompletableFuture runnableFuture = new RunnableCompletableFuture(taskDecorate, runnable);
             taskExecutor.execute(runnableFuture);
             return runnableFuture;
         } else {
@@ -278,10 +258,9 @@ public class PlatformDependentUtil {
         return cause;
     }
 
-    public static class RunnableCompletableFuture<T> extends CompletableFuture<T> implements Runnable {
+    public static class RunnableCompletableFuture extends CompletableFuture<Void> implements Runnable {
         private final Runnable runnable;
         private final ThreadSnapshot threadSnapshot;
-        private final Thread thread = Thread.currentThread();
 
         private RunnableCompletableFuture(Function<Runnable, Runnable> taskDecorate, Runnable runnable) {
             this.threadSnapshot = taskDecorate != null ? new ThreadSnapshot(taskDecorate) : null;
@@ -290,7 +269,7 @@ public class PlatformDependentUtil {
 
         @Override
         public void run() {
-            if (threadSnapshot != null && thread != Thread.currentThread()) {
+            if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
                 threadSnapshot.replay(() -> {
                     try {
                         runnable.run();
@@ -318,47 +297,55 @@ public class PlatformDependentUtil {
         }
     }
 
-    public static class ThreadSnapshot {
-        private static final ThreadLocal<ThreadSnapshot> CURRENT = new ThreadLocal<>();
+    public static class ThreadSnapshot implements Runnable {
+        private static final ThreadLocal<LinkedList<ThreadSnapshot>> CURRENT = ThreadLocal.withInitial(LinkedList::new);
+        private final Thread thread = Thread.currentThread();
         private final Runnable snapshot;
-        private final Thread userThread;
         private Runnable task;
+        private String lastTaskName;
 
         public ThreadSnapshot(Function<Runnable, Runnable> taskDecorate) {
-            this.snapshot = taskDecorate != null ? taskDecorate.apply(this::runTask) : null;
-            ThreadSnapshot parent = CURRENT.get();
-            if (parent != null) {
-                userThread = parent.userThread;
-            } else {
-                userThread = Thread.currentThread();
-            }
+            this.snapshot = taskDecorate != null ? taskDecorate.apply(this) : null;
         }
 
         public static boolean isUserThread() {
-            ThreadSnapshot threadSnapshot = CURRENT.get();
-            if (threadSnapshot != null) {
-                return threadSnapshot.userThread == Thread.currentThread();
-            } else {
+            LinkedList<ThreadSnapshot> snapshots = CURRENT.get();
+            if (snapshots.isEmpty()) {
                 return true;
+            } else {
+                return snapshots.getFirst().thread == Thread.currentThread();
             }
         }
 
-        private void runTask() {
+        @Override
+        public void run() {
             Runnable task = this.task;
             this.task = null;
+            lastTaskName = task.toString();
             task.run();
         }
 
-        public boolean isAsyncThread() {
-            return userThread != Thread.currentThread();
+        @Override
+        public String toString() {
+            return "ThreadSnapshot{" +
+                    lastTaskName +
+                    '}';
+        }
+
+        public boolean isNeedReplay() {
+            LinkedList<ThreadSnapshot> snapshots = CURRENT.get();
+            if (snapshots.isEmpty()) {
+                return true;
+            } else {
+                return snapshots.getLast().thread != thread;
+            }
         }
 
         public void replay(Runnable task) {
-            if (userThread == Thread.currentThread()) {
-                task.run();
-            } else {
+            LinkedList<ThreadSnapshot> snapshots = CURRENT.get();
+            if (snapshots.isEmpty() || snapshots.getLast().thread != thread) {
                 try {
-                    CURRENT.set(this);
+                    snapshots.addLast(this);
                     if (snapshot != null) {
                         this.task = task;
                         snapshot.run();
@@ -366,8 +353,10 @@ public class PlatformDependentUtil {
                         task.run();
                     }
                 } finally {
-                    CURRENT.remove();
+                    snapshots.removeLast();
                 }
+            } else {
+                task.run();
             }
         }
     }

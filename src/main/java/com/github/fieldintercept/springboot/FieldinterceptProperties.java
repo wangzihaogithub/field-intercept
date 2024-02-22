@@ -239,6 +239,10 @@ public class FieldinterceptProperties {
          * 打上ReturnFieldAop注解的方法，是否使用非阻塞返回（dubbo-server接口转异步，spring-web-server接口转异步）
          */
         private boolean pendingNonBlock = true;
+        /**
+         * FieldCompletableFuture的链式调用是否默认也用聚合
+         */
+        private boolean chainCallUseAggregation = false;
 
         public BatchAggregationEnum getEnabled() {
             return enabled;
@@ -246,6 +250,14 @@ public class FieldinterceptProperties {
 
         public void setEnabled(BatchAggregationEnum enabled) {
             this.enabled = enabled;
+        }
+
+        public boolean isChainCallUseAggregation() {
+            return chainCallUseAggregation;
+        }
+
+        public void setChainCallUseAggregation(boolean chainCallUseAggregation) {
+            this.chainCallUseAggregation = chainCallUseAggregation;
         }
 
         public long getPollMilliseconds() {

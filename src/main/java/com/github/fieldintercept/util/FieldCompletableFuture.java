@@ -11,11 +11,12 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
-    private final FieldCompletableFuture<T> root;
-    private final FieldCompletableFuture<T> parent;
+    private transient final FieldCompletableFuture<T> root;
+    private transient final FieldCompletableFuture<T> parent;
+    private transient volatile ReturnFieldDispatchAop.GroupCollect<?> groupCollect;
+    private transient boolean parentDone;
+    private transient Boolean useAggregation;
     private T value;
-    private volatile ReturnFieldDispatchAop.GroupCollect<?> groupCollect;
-    private boolean parentDone;
 
     public FieldCompletableFuture() {
         this.value = null;
@@ -29,11 +30,33 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
         this.root = null;
     }
 
-    public FieldCompletableFuture(FieldCompletableFuture<T> root, FieldCompletableFuture<T> parent, CompletionStage<T> stage) {
+    private FieldCompletableFuture(FieldCompletableFuture<T> root, FieldCompletableFuture<T> parent, CompletionStage<T> stage) {
         this.value = null;
         this.root = root;
         this.parent = parent;
         stage.whenComplete(this::next);
+    }
+
+    public static <T> FieldCompletableFuture<T> completableFuture(T value) {
+        return new FieldCompletableFuture<>(value);
+    }
+
+    public static FieldCompletableFuture<Object[]> completableFuture(Object... value) {
+        return new FieldCompletableFuture<>(value);
+    }
+
+    public FieldCompletableFuture<T> useAggregation() {
+        this.useAggregation = true;
+        return this;
+    }
+
+    public FieldCompletableFuture<T> disableAggregation() {
+        this.useAggregation = false;
+        return this;
+    }
+
+    public boolean isUseAggregation() {
+        return useAggregation != null && useAggregation;
     }
 
     public boolean isChainCall() {
@@ -54,8 +77,12 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
 
         try {
             FieldCompletableFuture<T> future = new FieldCompletableFuture<>(result);
-            groupCollect.autowiredFieldValue(future);
-            if (future.isDone()) {
+            if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
+                threadSnapshot.replay(() -> groupCollect.autowiredFieldValue(future));
+            } else {
+                groupCollect.autowiredFieldValue(future);
+            }
+            if (future.isDone() && !future.isCompletedExceptionally()) {
                 super.complete(result);
             } else {
                 future.whenComplete((unused, throwable1) -> {
@@ -93,6 +120,9 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
 
     public void access(ReturnFieldDispatchAop.GroupCollect<?> groupCollect) {
         this.groupCollect = groupCollect;
+        if (useAggregation == null) {
+            this.useAggregation = groupCollect.getAop().isChainCallUseAggregation();
+        }
         if (parent != null) {
             parent.access(groupCollect);
         }
@@ -101,7 +131,7 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
     @Override
     public boolean snapshot(Function<Runnable, Runnable> taskDecorate) {
         if (parent != null) {
-            return parent.snapshot(taskDecorate);
+            parent.snapshot(taskDecorate);
         }
         return super.snapshot(taskDecorate);
     }

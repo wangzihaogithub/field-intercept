@@ -489,6 +489,11 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                     Map<Object, ?> result = api.selectNameMapByKeys(beanName, keys);
                     return convertAsyncIfNeed(result, cFields, this);
                 }
+
+                @Override
+                public String toString() {
+                    return "KeyNameFieldIntercept{" + beanName + '}';
+                }
             };
             private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<Object, Object, JOIN_POINT>(Object.class, Object.class) {
                 @Override
@@ -496,6 +501,11 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                     Api api = reference.get();
                     Map<Object, Object> result = api.selectValueMapByKeys(beanName, keys);
                     return convertAsyncIfNeed(result, cFields, this);
+                }
+
+                @Override
+                public String toString() {
+                    return "DubboKeyValueFieldIntercept{" + beanName + '}';
                 }
             };
 
@@ -536,9 +546,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
 
             @Override
             public String toString() {
-                return "DubboCompositeFieldIntercept{" +
-                        beanName +
-                        '}';
+                return "DubboCompositeFieldIntercept{" + beanName + '}';
             }
         }
     }

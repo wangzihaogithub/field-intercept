@@ -22,4 +22,13 @@ public class Department {
     private Integer id1;
     @FieldConsumer(value = CUSTOMER_USER, keyField = "leaderUserId", valueField = "${childIds}")
     private Set<Integer> childIds;
+
+    private String name;
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
+    }
 }

@@ -1,10 +1,15 @@
 package com.github.fieldintercept.util;
 
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
-    private transient PlatformDependentUtil.ThreadSnapshot threadSnapshot;
+    protected transient PlatformDependentUtil.ThreadSnapshot threadSnapshot;
+    private transient List<BiConsumer<T, Throwable>> beforeCompleteListenerList;
 
     public SnapshotCompletableFuture() {
     }
@@ -30,16 +35,57 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
         }
     }
 
+    public void addBeforeCompleteListener(BiConsumer<T, Throwable> listener) {
+        if (isDone()) {
+            try {
+                listener.accept(get(), null);
+            } catch (Throwable e) {
+                listener.accept(null, PlatformDependentUtil.unwrap(e));
+            }
+        } else {
+            if (beforeCompleteListenerList == null) {
+                beforeCompleteListenerList = new LinkedList<>();
+            }
+            beforeCompleteListenerList.add(listener);
+        }
+    }
+
     @Override
     public boolean completeExceptionally(Throwable ex) {
         if (isDone()) {
             return false;
         }
-        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
-            threadSnapshot.replay(() -> super.completeExceptionally(ex));
+        if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
+            threadSnapshot.replay(() -> {
+                try {
+                    List<BiConsumer<T, Throwable>> beforeCompleteListenerList = this.beforeCompleteListenerList;
+                    if (beforeCompleteListenerList != null) {
+                        ArrayList<BiConsumer<T, Throwable>> biConsumers = new ArrayList<>(beforeCompleteListenerList);
+                        beforeCompleteListenerList.clear();
+                        for (BiConsumer<T, Throwable> listener : biConsumers) {
+                            listener.accept(null, ex);
+                        }
+                    }
+                } finally {
+                    super.completeExceptionally(ex);
+                }
+            });
             return true;
         } else {
-            return super.completeExceptionally(ex);
+            boolean b;
+            try {
+                List<BiConsumer<T, Throwable>> beforeCompleteListenerList = this.beforeCompleteListenerList;
+                if (beforeCompleteListenerList != null) {
+                    ArrayList<BiConsumer<T, Throwable>> biConsumers = new ArrayList<>(beforeCompleteListenerList);
+                    beforeCompleteListenerList.clear();
+                    for (BiConsumer<T, Throwable> listener : biConsumers) {
+                        listener.accept(null, ex);
+                    }
+                }
+            } finally {
+                b = super.completeExceptionally(ex);
+            }
+            return b;
         }
     }
 
@@ -48,11 +94,39 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
         if (isDone()) {
             return false;
         }
-        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
-            threadSnapshot.replay(() -> super.complete(value));
+        if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
+            threadSnapshot.replay(() -> {
+                try {
+                    List<BiConsumer<T, Throwable>> beforeCompleteListenerList = this.beforeCompleteListenerList;
+                    if (beforeCompleteListenerList != null) {
+                        ArrayList<BiConsumer<T, Throwable>> biConsumers = new ArrayList<>(beforeCompleteListenerList);
+                        beforeCompleteListenerList.clear();
+                        for (BiConsumer<T, Throwable> listener : biConsumers) {
+                            listener.accept(value, null);
+                        }
+                    }
+                    super.complete(value);
+                } catch (Throwable t) {
+                    super.completeExceptionally(t);
+                }
+            });
             return true;
         } else {
-            return super.complete(value);
+            boolean b;
+            try {
+                List<BiConsumer<T, Throwable>> beforeCompleteListenerList = this.beforeCompleteListenerList;
+                if (beforeCompleteListenerList != null) {
+                    ArrayList<BiConsumer<T, Throwable>> biConsumers = new ArrayList<>(beforeCompleteListenerList);
+                    beforeCompleteListenerList.clear();
+                    for (BiConsumer<T, Throwable> listener : biConsumers) {
+                        listener.accept(value, null);
+                    }
+                }
+                b = super.complete(value);
+            } catch (Throwable t) {
+                b = super.completeExceptionally(t);
+            }
+            return b;
         }
     }
 
@@ -66,7 +140,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public boolean cancel(boolean mayInterruptIfRunning) {
-        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
+        if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
             threadSnapshot.replay(() -> super.cancel(mayInterruptIfRunning));
             return isCancelled();
         } else {
@@ -76,7 +150,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public void obtrudeException(Throwable ex) {
-        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
+        if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
             threadSnapshot.replay(() -> super.obtrudeException(ex));
         } else {
             super.obtrudeException(ex);
@@ -85,7 +159,7 @@ public class SnapshotCompletableFuture<T> extends CompletableFuture<T> {
 
     @Override
     public void obtrudeValue(T value) {
-        if (threadSnapshot != null && threadSnapshot.isAsyncThread()) {
+        if (threadSnapshot != null && threadSnapshot.isNeedReplay()) {
             threadSnapshot.replay(() -> super.obtrudeValue(value));
         } else {
             super.obtrudeValue(value);
