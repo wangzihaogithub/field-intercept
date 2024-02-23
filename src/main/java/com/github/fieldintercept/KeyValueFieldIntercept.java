@@ -399,14 +399,13 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
             if (value != null) {
                 if (fieldType.isEnum() && value.getClass().isEnum()) {
                     cField.setValue(value);
-                } else {
+                } else if (cField.existPlaceholder()) {
                     String resolveValue = cField.resolvePlaceholders(value);
                     if (resolveValue != null) {
                         cField.setValue(resolveValue);
                     }
-                    if (!cField.isSetValue()) {
-                        cField.setValue(value);
-                    }
+                } else {
+                    cField.setValue(value);
                 }
             }
         }

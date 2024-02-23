@@ -45,6 +45,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
     protected FieldinterceptProperties.ThreadPool threadPool;
     protected FieldinterceptProperties.BatchAggregation batchAggregation;
     protected Class<? extends Annotation>[] myAnnotations = new Class[0];
+    protected Class<? extends BiConsumer<Object, Throwable>>[] fieldCompletableBeforeCompleteListeners;
     protected Class<? extends ReturnFieldDispatchAop> aopClass;
     protected ListableBeanFactory beanFactory;
     protected Environment environment;
@@ -139,7 +140,12 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         if (aop.getSkipFieldClassPredicate() == ReturnFieldDispatchAop.DEFAULT_SKIP_FIELD_CLASS_PREDICATE) {
             aop.setSkipFieldClassPredicate(this::isSkipFieldClass);
         }
-
+        if (fieldCompletableBeforeCompleteListeners != null) {
+            for (Class<? extends BiConsumer<Object, Throwable>> type : fieldCompletableBeforeCompleteListeners) {
+                BiConsumer<Object, Throwable> bean = beanFactory.getBean(type, BiConsumer.class);
+                aop.getFieldCompletableBeforeCompleteListeners().add(bean);
+            }
+        }
         TaskDecorator decorator = taskDecorator();
         if (decorator != null && aop.getTaskDecorate() == null) {
             aop.setTaskDecorate(decorator::decorate);
@@ -281,6 +287,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         this.enabled = properties.isEnabled();
         this.blockGetterTimeoutMilliseconds = properties.getBlockGetterTimeoutMilliseconds();
         this.maxRunnableConcurrentCount = properties.getMaxRunnableConcurrentCount();
+        this.fieldCompletableBeforeCompleteListeners = properties.getFieldCompletableBeforeCompleteListeners();
     }
 
     @Override

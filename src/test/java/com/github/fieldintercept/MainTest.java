@@ -38,6 +38,8 @@ public class MainTest {
         private List<Map> users;
         @FieldConsumer(value = Const.CUSTOMER_USER, keyField = "id",valueField = "${_deptId}")
         private String deptIds;
+        @FieldConsumer(value = Const.CUSTOMER_USER, keyField = "id",valueField = "./")
+        private String name;
     }
     public static class Dept{
         private Object id;
@@ -50,7 +52,7 @@ public class MainTest {
     }
     private static void test3(ReturnFieldDispatchAop<?> dispatchAop){
         User1 user1 = new User1();
-        user1.deptIds="1";
+        user1.id="1";
         FieldCompletableFuture future = new FieldCompletableFuture<>(user1)
                 .thenApply(new Function<User1, Dept>() {
                     @Override
@@ -82,7 +84,6 @@ public class MainTest {
                         return tenant;
                     }
                 });
-        future.completeExceptionally(new Throwable());
 
         dispatchAop.autowiredFieldValue(future);
     }
