@@ -2,6 +2,7 @@ package com.github.fieldintercept.util;
 
 import com.github.fieldintercept.ReturnFieldDispatchAop;
 
+import java.util.Collection;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -119,9 +120,19 @@ public class FieldCompletableFuture<T> extends SnapshotCompletableFuture<T> {
     }
 
     public void access(ReturnFieldDispatchAop.GroupCollect<?> groupCollect) {
+        if (this.groupCollect == groupCollect) {
+            return;
+        }
         this.groupCollect = groupCollect;
+        ReturnFieldDispatchAop<?> aop = groupCollect.getAop();
         if (useAggregation == null) {
-            this.useAggregation = groupCollect.getAop().isChainCallUseAggregation();
+            this.useAggregation = aop.isChainCallUseAggregation();
+        }
+        Collection<BiConsumer<Object, Throwable>> completeListeners = aop.getFieldCompletableBeforeCompleteListeners();
+        if (completeListeners != null && !completeListeners.isEmpty()) {
+            for (BiConsumer<Object, Throwable> consumer : completeListeners) {
+                addBeforeCompleteListener((BiConsumer<T, Throwable>) consumer);
+            }
         }
         if (parent != null) {
             parent.access(groupCollect);

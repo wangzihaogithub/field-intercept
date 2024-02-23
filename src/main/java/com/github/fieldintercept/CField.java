@@ -47,6 +47,10 @@ public class CField {
         this.configurableEnvironment = configurableEnvironment;
     }
 
+    private static boolean isDeconstruct(String attr) {
+        return "./".equals(attr) || ".".equals(attr);
+    }
+
     private static List<String> getPlaceholderAttributes(Annotation annotation, String[] attributeNames) {
         List<String> placeholders = new ArrayList<>();
         for (String attributeName : attributeNames) {
@@ -64,6 +68,9 @@ public class CField {
     public static boolean existResolve(String template) {
         if (template == null) {
             return false;
+        }
+        if (isDeconstruct(template)) {
+            return true;
         }
         int beginIndex = template.indexOf("${");
         return beginIndex != -1 && template.indexOf("}", beginIndex) != -1;
@@ -188,7 +195,13 @@ public class CField {
     public List<String> getPlaceholders() {
         if (placeholders == null) {
             String[] attributeNames = {"valueField", "keyField"};
-            placeholders = getPlaceholderAttributes(annotation, attributeNames);
+            List<String> placeholderAttributes = getPlaceholderAttributes(annotation, attributeNames);
+            for (int i = 0, size = placeholderAttributes.size(); i < size; i++) {
+                if (isDeconstruct(placeholderAttributes.get(i))) {
+                    placeholderAttributes.set(i, "${" + field.getName() + "}");
+                }
+            }
+            placeholders = placeholderAttributes;
         }
         return placeholders;
     }

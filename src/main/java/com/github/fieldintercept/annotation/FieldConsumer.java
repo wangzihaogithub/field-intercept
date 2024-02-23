@@ -39,7 +39,7 @@ public @interface FieldConsumer {
      * 支持占位符 （与spring的yaml相同， 支持spring的所有占位符表达式）， 比如 ‘${talentId} ${talentName} ${ig.env} ${random.int[25000,65000]}’
      * <p>
      * 例: 输入 "姓名${username}/部门${deptName}", 输出 "姓名xxx/部门xxx"
-     *
+     * .或者./表示以当前字段名称为解构
      * @return 字段名称
      */
     String[] valueField() default {};

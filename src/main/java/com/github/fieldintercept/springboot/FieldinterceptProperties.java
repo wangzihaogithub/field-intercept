@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
 import java.lang.annotation.Annotation;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
 @ConfigurationProperties(prefix = FieldinterceptProperties.PREFIX, ignoreUnknownFields = true)
 public class FieldinterceptProperties {
@@ -48,6 +49,10 @@ public class FieldinterceptProperties {
      * 切面对象
      */
     private Class<? extends ReturnFieldDispatchAop> aopClass = AspectjReturnFieldDispatchAop.class;
+    /**
+     * 异步完毕监听
+     */
+    private Class<? extends BiConsumer<Object, Throwable>>[] fieldCompletableBeforeCompleteListeners;
     /**
      * 注册自定义注解
      * 1. 自定义注解可以像使用 FieldConsumer注解一样，拦截字段处理逻辑
@@ -92,6 +97,14 @@ public class FieldinterceptProperties {
 
     public void setAopClass(Class<? extends ReturnFieldDispatchAop> aopClass) {
         this.aopClass = aopClass;
+    }
+
+    public Class<? extends BiConsumer<Object, Throwable>>[] getFieldCompletableBeforeCompleteListeners() {
+        return fieldCompletableBeforeCompleteListeners;
+    }
+
+    public void setFieldCompletableBeforeCompleteListeners(Class<? extends BiConsumer<Object, Throwable>>[] fieldCompletableBeforeCompleteListeners) {
+        this.fieldCompletableBeforeCompleteListeners = fieldCompletableBeforeCompleteListeners;
     }
 
     public Class<? extends Annotation>[] getMyAnnotations() {
