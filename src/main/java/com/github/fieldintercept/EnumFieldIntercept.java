@@ -44,7 +44,7 @@ public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object, O
     }
 
     @Override
-    protected Object[] rewriteKeyDataIfNeed(Object keyData, CField cField, Map<Object, Object> valueMap) {
+    protected Object[] rewriteKeyDataIfNeed(Object keyData, CField cField, Map<Object, Object> valueMap, Map<String, Object> attachment) {
         Class<? extends java.lang.Enum>[] baseEnumGroupEnum = getEnumClasses(cField.getAnnotation());
         if (baseEnumGroupEnum == null) {
             return null;

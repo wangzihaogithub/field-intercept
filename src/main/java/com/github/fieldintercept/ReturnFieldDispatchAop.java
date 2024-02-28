@@ -1,9 +1,6 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.annotation.EnumFieldConsumer;
-import com.github.fieldintercept.annotation.FieldConsumer;
-import com.github.fieldintercept.annotation.ReturnFieldAop;
-import com.github.fieldintercept.annotation.RouterFieldConsumer;
+import com.github.fieldintercept.annotation.*;
 import com.github.fieldintercept.util.*;
 import com.github.fieldintercept.util.PlatformDependentUtil.ThreadSnapshot;
 
@@ -51,6 +48,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     protected final AnnotationCache<RouterFieldConsumer> routerFieldConsumerCache = new AnnotationCache<>(RouterFieldConsumer.class, Arrays.asList(RouterFieldConsumer.class, RouterFieldConsumer.Extends.class), 100);
     protected final AnnotationCache<FieldConsumer> fieldConsumerCache = new AnnotationCache<>(FieldConsumer.class, Arrays.asList(FieldConsumer.class, FieldConsumer.Extends.class), 100);
     protected final AnnotationCache<EnumFieldConsumer> enumFieldConsumerCache = new AnnotationCache<>(EnumFieldConsumer.class, Arrays.asList(EnumFieldConsumer.class, EnumFieldConsumer.Extends.class), 100);
+    protected final AnnotationCache<EnumDBFieldConsumer> enumDBFieldConsumerCache = new AnnotationCache<>(EnumDBFieldConsumer.class, Arrays.asList(EnumDBFieldConsumer.class, EnumDBFieldConsumer.Extends.class), 100);
+
     /**
      * 实体类包名一样, 就认为是业务实体类
      */
@@ -374,7 +373,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected ReturnFieldAop getAnnotationReturnFieldAop(JOIN_POINT joinPoint) {
-        return returnFieldAopCache.findDeclaredAnnotation(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint));
+        return returnFieldAopCache.cast(returnFieldAopCache.findDeclaredAnnotation(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint)));
     }
 
     protected Pending<JOIN_POINT> addPendingList(GroupCollect<JOIN_POINT> groupCollectMap, boolean block) {
@@ -1283,8 +1282,42 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     continue;
                 }
 
+                //普通消费字段
+                Annotation fieldConsumer = aop.fieldConsumerCache.findDeclaredAnnotation(field);
+                if (fieldConsumer != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    FieldConsumer cast = aop.fieldConsumerCache.cast(fieldConsumer);
+                    addField(cast.value(), beanHandler, field, fieldConsumer, cast, aop.fieldConsumerCache.type);
+                    continue;
+                }
+
+                //数据库枚举消费字段
+                Annotation enumDBFieldConsumer = aop.enumDBFieldConsumerCache.findDeclaredAnnotation(field);
+                if (enumDBFieldConsumer != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    EnumDBFieldConsumer cast = aop.enumDBFieldConsumerCache.cast(enumDBFieldConsumer);
+                    addField(EnumDBFieldConsumer.NAME, beanHandler, field, enumDBFieldConsumer, cast, aop.enumDBFieldConsumerCache.type);
+                    continue;
+                }
+
+                //枚举消费字段
+                Annotation enumFieldConsumer = aop.enumFieldConsumerCache.findDeclaredAnnotation(field);
+                if (enumFieldConsumer != null) {
+                    if (beanHandler == null) {
+                        beanHandler = new BeanMap(bean);
+                    }
+                    EnumFieldConsumer cast = aop.enumFieldConsumerCache.cast(enumFieldConsumer);
+                    addField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer, cast, aop.enumFieldConsumerCache.type);
+                    continue;
+                }
+
                 //路由消费字段
-                RouterFieldConsumer routerFieldConsumer = aop.routerFieldConsumerCache.findDeclaredAnnotation(field);
+                Annotation routerFieldConsumerAnnotation = aop.routerFieldConsumerCache.findDeclaredAnnotation(field);
+                RouterFieldConsumer routerFieldConsumer = aop.routerFieldConsumerCache.cast(routerFieldConsumerAnnotation);
                 String routerField;
                 if (routerFieldConsumer != null && (routerField = routerFieldConsumer.routerField()).length() > 0) {
                     if (beanHandler == null) {
@@ -1299,38 +1332,37 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         routerFieldDataStr = null;
                     }
                     FieldConsumer choseFieldConsumer = null;
-                    for (FieldConsumer fieldConsumer : routerFieldConsumer.value()) {
-                        String type = fieldConsumer.type();
+                    int index = 0;
+                    for (FieldConsumer itemFieldConsumer : routerFieldConsumer.value()) {
+                        String type = itemFieldConsumer.type();
                         if (Objects.equals(routerFieldDataStr, type)) {
-                            choseFieldConsumer = fieldConsumer;
+                            choseFieldConsumer = itemFieldConsumer;
                             break;
                         }
+                        index++;
                     }
+                    boolean choseFieldConsumerFlag;
+                    Annotation choseFieldConsumerAnnotation = null;
                     if (choseFieldConsumer == null) {
                         choseFieldConsumer = routerFieldConsumer.defaultElse();
+                        choseFieldConsumerFlag = choseFieldConsumer.value().length() > 0;
+                        if (choseFieldConsumerFlag) {
+                            choseFieldConsumerAnnotation = (Annotation) AnnotationUtil.getValue(routerFieldConsumerAnnotation, "defaultElse");
+                        }
+                    } else {
+                        choseFieldConsumerFlag = choseFieldConsumer.value().length() > 0;
+                        if (choseFieldConsumerFlag) {
+                            Object value = AnnotationUtil.getValue(routerFieldConsumerAnnotation);
+                            if (value != null && value.getClass().isArray()) {
+                                choseFieldConsumerAnnotation = (Annotation) Array.get(value, index);
+                            } else {
+                                choseFieldConsumerAnnotation = (Annotation) value;
+                            }
+                        }
                     }
-                    if (choseFieldConsumer.value().length() > 0) {
-                        addField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumer);
+                    if (choseFieldConsumerFlag) {
+                        addField(choseFieldConsumer.value(), beanHandler, field, choseFieldConsumerAnnotation, choseFieldConsumer, aop.routerFieldConsumerCache.type);
                     }
-                }
-
-                //普通消费字段
-                FieldConsumer fieldConsumer = aop.fieldConsumerCache.findDeclaredAnnotation(field);
-                if (fieldConsumer != null) {
-                    if (beanHandler == null) {
-                        beanHandler = new BeanMap(bean);
-                    }
-                    addField(fieldConsumer.value(), beanHandler, field, fieldConsumer);
-                    continue;
-                }
-
-                //枚举消费字段
-                EnumFieldConsumer enumFieldConsumer = aop.enumFieldConsumerCache.findDeclaredAnnotation(field);
-                if (enumFieldConsumer != null) {
-                    if (beanHandler == null) {
-                        beanHandler = new BeanMap(bean);
-                    }
-                    addField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer);
                     continue;
                 }
 
@@ -1342,7 +1374,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                             beanHandler = new BeanMap(bean);
                         }
                         String name = aop.getMyAnnotationConsumerName(myAnnotationClass);
-                        addField(name, beanHandler, field, myAnnotation);
+                        addField(name, beanHandler, field, myAnnotation, myAnnotation, myAnnotationClass);
                     }
                 }
 
@@ -1537,9 +1569,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
          * 单线程执行
          */
         private void addField(String consumerName, BeanMap beanHandler, Field field,
-                              Annotation annotation) {
-            CField cField = new CField(consumerName, beanHandler, field, annotation, aop.configurableEnvironment);
-//            Map<String, List<CField>> map = isDependent(cField.getValue()) ? dependentGroupCollectMap : groupCollectMap;
+                              Annotation annotation, Annotation castAnnotation, Class<? extends Annotation> castType) {
+            CField cField = new CField(consumerName, beanHandler, field, annotation, castAnnotation, castType, aop.configurableEnvironment);
             groupCollectMap.computeIfAbsent(consumerName, e -> newList(this, consumerName))
                     .add(cField);
         }
@@ -1910,21 +1941,28 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         private final Collection<Class<? extends Annotation>> alias;
         private final int cacheSize;
         private final Map<Class<?>, Boolean> findCache = new ConcurrentHashMap<>(32);
-        private final Map<AnnotatedElement, ANNOTATION> instanceCache;
+        private final Map<AnnotatedElement, Annotation> annotationCache;
+        private final Map<Annotation, ANNOTATION> instanceCache;
 
         private AnnotationCache(Class<ANNOTATION> type, Collection<Class<? extends Annotation>> alias, int cacheSize) {
             this.type = type;
             this.alias = alias;
             this.cacheSize = cacheSize;
-            this.instanceCache = Collections.synchronizedMap(new LinkedHashMap<AnnotatedElement, ANNOTATION>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
+            this.annotationCache = Collections.synchronizedMap(new LinkedHashMap<AnnotatedElement, Annotation>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
                 @Override
-                protected boolean removeEldestEntry(Map.Entry<AnnotatedElement, ANNOTATION> eldest) {
+                protected boolean removeEldestEntry(Map.Entry<AnnotatedElement, Annotation> eldest) {
+                    return size() > AnnotationCache.this.cacheSize;
+                }
+            });
+            this.instanceCache = Collections.synchronizedMap(new LinkedHashMap<Annotation, ANNOTATION>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Annotation, ANNOTATION> eldest) {
                     return size() > AnnotationCache.this.cacheSize;
                 }
             });
         }
 
-        public ANNOTATION findDeclaredAnnotation(AnnotatedElement element) {
+        public Annotation findDeclaredAnnotation(AnnotatedElement element) {
             if (element == null) {
                 return null;
             }
@@ -1932,7 +1970,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             if (annotations == null || annotations.length == 0) {
                 return null;
             }
-            return instanceCache.computeIfAbsent(element, e -> AnnotationUtil.findExtendsAnnotation(annotations, alias, type, findCache));
+            return annotationCache.computeIfAbsent(element, e -> AnnotationUtil.findExtendsAnnotation(annotations, alias, findCache));
+        }
+
+        public ANNOTATION cast(Annotation annotation) {
+            if (annotation == null) {
+                return null;
+            }
+            return instanceCache.computeIfAbsent(annotation, e -> AnnotationUtil.cast(e, type));
         }
     }
 

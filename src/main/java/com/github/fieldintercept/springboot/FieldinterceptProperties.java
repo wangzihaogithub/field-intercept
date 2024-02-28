@@ -438,6 +438,19 @@ public class FieldinterceptProperties {
          */
         private Integer connections;
 
+        /**
+         * 是否将字段穿过去
+         */
+        private boolean argumentFields = false;
+
+        public boolean isArgumentFields() {
+            return argumentFields;
+        }
+
+        public void setArgumentFields(boolean argumentFields) {
+            this.argumentFields = argumentFields;
+        }
+
         public Boolean getAsync() {
             return async;
         }

@@ -59,6 +59,7 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
      */
     private int blockGetterTimeoutMilliseconds;
     private Supplier<FieldinterceptProperties> propertiesSupplier;
+    private Set<String> enumDBFieldInterceptNames;
 
     @Override
     public void registerBeanDefinitions(AnnotationMetadata metadata, BeanDefinitionRegistry definitionRegistry) {
@@ -106,8 +107,9 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
 
     protected <JOIN_POINT> void config(ReturnFieldDispatchAop<JOIN_POINT> aop) {
         initProperties();
+        // 注册数据库枚举查询别名
+        this.enumDBFieldInterceptNames = registryAlias(EnumDBFieldIntercept.class, BEAN_NAME_ENUM_DB_FIELD_INTERCEPT);
 
-        aop.setConsumerFactory(consumerFactory());
         aop.setBlockGetterTimeoutMilliseconds(blockGetterTimeoutMilliseconds);
         aop.setMaxRunnableConcurrentCount(maxRunnableConcurrentCount);
 
@@ -130,10 +132,6 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         for (Class<? extends Annotation> myAnnotation : myAnnotations) {
             aop.getAnnotations().add(myAnnotation);
         }
-        // 注册数据库枚举查询别名
-        if (registryAlias(EnumDBFieldIntercept.class, BEAN_NAME_ENUM_DB_FIELD_INTERCEPT)) {
-            aop.getAnnotations().add(EnumDBFieldConsumer.class);
-        }
         if (aop.getConfigurableEnvironment() == null) {
             aop.setConfigurableEnvironment(configurableEnvironment());
         }
@@ -153,9 +151,14 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
         if (aop.getTaskExecutor() == null) {
             aop.setTaskExecutor(taskExecutorFunction());
         }
+        aop.setConsumerFactory(consumerFactory());
         if (!enabled) {
             aop.setEnabled((j, r) -> false);
         }
+    }
+
+    public Set<String> getEnumDBFieldInterceptNames() {
+        return enumDBFieldInterceptNames;
     }
 
     protected <JOIN_POINT> Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory() {
@@ -268,15 +271,15 @@ public class FieldInterceptBeanDefinitionRegistrar implements ImportBeanDefiniti
      * @param alias    起的新别名
      * @return 是否注册别名成功。true=成功
      */
-    protected boolean registryAlias(Class beanType, String alias) {
-        List<String> beanNames = Arrays.asList(beanFactory.getBeanNamesForType(beanType));
-        if (beanNames.isEmpty() || beanNames.contains(alias) || definitionRegistry.containsBeanDefinition(alias)) {
-            return false;
-        } else {
+    protected Set<String> registryAlias(Class beanType, String alias) {
+        List<String> beanNames = new ArrayList<>(Arrays.asList(beanFactory.getBeanNamesForType(beanType)));
+        if (!beanNames.isEmpty() && !beanNames.contains(alias) && !definitionRegistry.containsBeanDefinition(alias)) {
             definitionRegistry.registerAlias(beanNames.get(beanNames.size() - 1), alias);
-            return true;
         }
+        beanNames.add(alias);
+        return new LinkedHashSet<>(beanNames);
     }
+
 
     public void setMetadata(FieldinterceptProperties properties) {
         this.threadPool = properties.getThreadPool();

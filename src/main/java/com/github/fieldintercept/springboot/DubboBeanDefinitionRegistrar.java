@@ -33,6 +33,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -161,22 +162,31 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
 
     @Override
     protected <JOIN_POINT> Function<String, BiConsumer<JOIN_POINT, List<CField>>> consumerFactory() {
+        Function<String, BiConsumer<JOIN_POINT, List<CField>>> parent = super.consumerFactory();
         FieldinterceptProperties.ClusterRoleEnum roleEnum = environment.getProperty(FieldinterceptProperties.PREFIX + ".cluster.role", FieldinterceptProperties.ClusterRoleEnum.class, FieldinterceptProperties.ClusterRoleEnum.all);
         switch (roleEnum) {
             case consumer:
             case all: {
-                return new DubboReferenceFactory<>(super.consumerFactory(), this::getProperties);
+                return new DubboReferenceFactory<>(parent, getEnumDBFieldInterceptNames(), this::getProperties);
             }
             default: {
-                return super.consumerFactory();
+                return parent;
             }
         }
     }
 
     public interface Api {
+        @Deprecated
         Map<Object, Object> selectNameMapByKeys(String beanName, Collection<Object> keys);
 
+        @Deprecated
         Map<Object, Object> selectValueMapByKeys(String beanName, Collection<Object> keys);
+
+        Map<Object, Object> selectSerializeNameMapByKeys(String beanName, List<CField.SerializeCField> fields, Collection<Object> keys);
+
+        Map<Object, Object> selectSerializeValueMapByKeys(String beanName, List<CField.SerializeCField> fields, Collection<Object> keys);
+
+        Map<String, Map<String, Object>> selectEnumGroupKeyValueMap(String beanName, List<CField.SerializeCField> fields, Set<String> groups, Collection<Object> keys);
     }
 
     public static class DubboServiceConfig {
@@ -219,7 +229,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 this.intercept = intercept;
                 this.serviceBean = serviceBean;
                 this.beanName = beanName;
-                this.options = AnnotationUtil.findExtendsAnnotation(intercept.getClass().getDeclaredAnnotations(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), ServiceOptions.class, CACHE_MAP);
+                this.options = AnnotationUtil.cast(AnnotationUtil.findExtendsAnnotation(intercept.getClass().getDeclaredAnnotations(), Arrays.asList(ServiceOptions.class, ServiceOptions.Extends.class), CACHE_MAP), ServiceOptions.class);
             }
 
             private boolean isRpc() {
@@ -243,10 +253,47 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
             }
 
             private ReturnFieldDispatchAop.SelectMethodHolder put(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept, ServiceBean<ReturnFieldDispatchAop.SelectMethodHolder> serviceBean) {
+                String beanName0 = ReturnFieldDispatchAop.getBeanName(beanName);
+                if (!Objects.equals(beanName, beanName0)) {
+                    if (serviceBean != null) {
+                        interceptServiceBeanMap.put(beanName0, serviceBean);
+                    }
+                    interceptMap.put(beanName0, intercept);
+                }
                 if (serviceBean != null) {
                     interceptServiceBeanMap.put(beanName, serviceBean);
                 }
                 return interceptMap.put(beanName, intercept);
+            }
+
+            @Override
+            public Map<Object, Object> selectSerializeNameMapByKeys(String beanName, List<CField.SerializeCField> fields, Collection<Object> keys) {
+                Service service = getService(beanName);
+                if (service == null) {
+                    return Collections.emptyMap();
+                } else {
+                    return service.selectNameMapByKeys(keys, fields);
+                }
+            }
+
+            @Override
+            public Map<Object, Object> selectSerializeValueMapByKeys(String beanName, List<CField.SerializeCField> fields, Collection<Object> keys) {
+                Service service = getService(beanName);
+                if (service == null) {
+                    return Collections.emptyMap();
+                } else {
+                    return service.selectValueMapByKeys(keys, fields);
+                }
+            }
+
+            @Override
+            public Map<String, Map<String, Object>> selectEnumGroupKeyValueMap(String beanName, List<CField.SerializeCField> fields, Set<String> groups, Collection<Object> keys) {
+                Service service = getService(beanName);
+                if (service == null) {
+                    return Collections.emptyMap();
+                } else {
+                    return service.selectEnumGroupKeyValueMap(groups, keys, fields);
+                }
             }
 
             @Override
@@ -255,7 +302,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 if (service == null) {
                     return Collections.emptyMap();
                 } else {
-                    return service.selectNameMapByKeys(keys);
+                    return service.selectNameMapByKeys(keys, Collections.emptyList());
                 }
             }
 
@@ -265,7 +312,7 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 if (service == null) {
                     return Collections.emptyMap();
                 } else {
-                    return service.selectValueMapByKeys(keys);
+                    return service.selectValueMapByKeys(keys, Collections.emptyList());
                 }
             }
 
@@ -278,29 +325,37 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 private final String beanName;
                 private final ReturnFieldDispatchAop.SelectMethodHolder intercept;
                 private final AtomicBoolean bindMethodFlag = new AtomicBoolean();
-                private volatile Function<Collection, Map> selectNameMapByKeys;
-                private volatile Function<Collection, Map> selectValueMapByKeys;
+                private volatile BiFunction<List<CField.SerializeCField>, Collection, Map> selectNameMapByKeys;
+                private volatile BiFunction<List<CField.SerializeCField>, Collection, Map> selectValueMapByKeys;
+                private volatile EnumDBFieldIntercept enumDBFieldIntercept;
 
                 private Service(String beanName, ReturnFieldDispatchAop.SelectMethodHolder intercept) {
                     this.beanName = beanName;
                     this.intercept = intercept;
                 }
 
-                private static Function<Collection, Map> bindMethod(KeyNameFieldIntercept intercept) {
+                private static BiFunction<List<CField.SerializeCField>, Collection, Map> bindMethod(KeyNameFieldIntercept intercept) {
                     Function<Collection, Map> method = intercept.getSelectNameMapByKeys();
-                    return method != null ? method : intercept::selectNameMapByKeys;
+                    return method != null ? (fields, collection) -> method.apply(collection) : intercept::selectSerializeNameMapByKeys;
                 }
 
-                private static Function<Collection, Map> bindMethod(KeyValueFieldIntercept intercept) {
+                private static BiFunction<List<CField.SerializeCField>, Collection, Map> bindMethod(KeyValueFieldIntercept intercept) {
                     Function<Collection, Map> method = intercept.getSelectValueMapByKeys();
-                    return method != null ? method : intercept::selectValueMapByKeys;
+                    return method != null ? (fields, collection) -> method.apply(collection) : intercept::selectSerializeValueMapByKeys;
                 }
 
                 private void bindMethod(Object intercept) {
                     if (intercept instanceof CompositeFieldIntercept) {
-                        CompositeFieldIntercept compositeFieldIntercept = (CompositeFieldIntercept) intercept;
-                        selectNameMapByKeys = bindMethod(compositeFieldIntercept.keyNameFieldIntercept());
-                        selectValueMapByKeys = bindMethod(compositeFieldIntercept.keyValueFieldIntercept());
+                        CompositeFieldIntercept cast = (CompositeFieldIntercept) intercept;
+                        selectNameMapByKeys = bindMethod(cast.keyNameFieldIntercept());
+                        selectValueMapByKeys = bindMethod(cast.keyValueFieldIntercept());
+                    } else if (intercept instanceof EnumFieldIntercept) {
+                        EnumFieldIntercept cast = (EnumFieldIntercept) intercept;
+                        selectValueMapByKeys = selectNameMapByKeys = bindMethod(cast);
+                    } else if (intercept instanceof EnumDBFieldIntercept) {
+                        EnumDBFieldIntercept cast = (EnumDBFieldIntercept) intercept;
+                        selectValueMapByKeys = selectNameMapByKeys = bindMethod(cast);
+                        enumDBFieldIntercept = cast;
                     } else if (intercept instanceof KeyNameFieldIntercept) {
                         selectNameMapByKeys = bindMethod((KeyNameFieldIntercept) intercept);
                     } else if (intercept instanceof KeyValueFieldIntercept) {
@@ -308,33 +363,42 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                     }
                 }
 
-                public Map<Object, Object> selectNameMapByKeys(Collection<Object> keys) {
+                public Map<Object, Object> selectNameMapByKeys(Collection<Object> keys, List<CField.SerializeCField> fields) {
                     if (bindMethodFlag.compareAndSet(false, true)) {
                         bindMethod(intercept);
                     }
                     if (selectNameMapByKeys == null) {
                         return Collections.emptyMap();
                     } else {
-                        return selectNameMapByKeys.apply(keys);
+                        return selectNameMapByKeys.apply(fields, keys);
                     }
                 }
 
-                public Map<Object, Object> selectValueMapByKeys(Collection<Object> keys) {
+                public Map<Object, Object> selectValueMapByKeys(Collection<Object> keys, List<CField.SerializeCField> fields) {
                     if (bindMethodFlag.compareAndSet(false, true)) {
                         bindMethod(intercept);
                     }
                     if (selectValueMapByKeys == null) {
                         return Collections.emptyMap();
                     } else {
-                        return selectValueMapByKeys.apply(keys);
+                        return selectValueMapByKeys.apply(fields, keys);
+                    }
+                }
+
+                public Map<String, Map<String, Object>> selectEnumGroupKeyValueMap(Set<String> groups, Collection<Object> keys, List<CField.SerializeCField> fields) {
+                    if (bindMethodFlag.compareAndSet(false, true)) {
+                        bindMethod(intercept);
+                    }
+                    if (enumDBFieldIntercept == null) {
+                        return Collections.emptyMap();
+                    } else {
+                        return enumDBFieldIntercept.selectSerializeEnumGroupKeyValueMap(fields, groups, keys);
                     }
                 }
 
                 @Override
                 public String toString() {
-                    return "DubboService{" +
-                            beanName +
-                            '}';
+                    return "DubboService{" + beanName + '}';
                 }
             }
         }
@@ -442,12 +506,22 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
     private static class DubboReferenceFactory<JOIN_POINT> implements Function<String, BiConsumer<JOIN_POINT, List<CField>>> {
         private final Function<String, BiConsumer<JOIN_POINT, List<CField>>> parent;
         private final Map<String, BiConsumer<JOIN_POINT, List<CField>>> beanMap = new ConcurrentHashMap<>();
+        private final Set<String> enumDBFieldInterceptNames;
         private final Supplier<FieldinterceptProperties> properties;
         private volatile ReferenceConfig<Api> reference;
 
-        private DubboReferenceFactory(Function<String, BiConsumer<JOIN_POINT, List<CField>>> parent, Supplier<FieldinterceptProperties> properties) {
+        private DubboReferenceFactory(Function<String, BiConsumer<JOIN_POINT, List<CField>>> parent, Set<String> enumDBFieldInterceptNames, Supplier<FieldinterceptProperties> properties) {
             this.parent = parent;
+            this.enumDBFieldInterceptNames = enumDBFieldInterceptNames;
             this.properties = properties;
+        }
+
+        private static List<CField.SerializeCField> convert(List<CField> cFields) {
+            List<CField.SerializeCField> list = new ArrayList<>(cFields.size());
+            for (CField cField : cFields) {
+                list.add(new CField.SerializeCField(cField));
+            }
+            return list;
         }
 
         @Override
@@ -461,14 +535,17 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 }
             }
             if (result == null) {
+                FieldinterceptProperties.Dubbo dubbo = properties.get().getCluster().getDubbo();
                 if (reference == null) {
                     synchronized (this) {
                         if (reference == null) {
-                            reference = addReference(properties.get().getCluster().getDubbo());
+                            reference = addReference(dubbo);
                         }
                     }
                 }
-                result = new DubboCompositeFieldIntercept<>(name, reference);
+                boolean argumentFields = dubbo.isArgumentFields();
+                boolean isEnumDBFieldIntercept = enumDBFieldInterceptNames != null && enumDBFieldInterceptNames.contains(name);
+                result = isEnumDBFieldIntercept ? new DubboDBEnumFieldIntercept<>(name, reference, argumentFields) : new DubboCompositeFieldIntercept<>(name, reference, argumentFields);
                 beanMap.put(name, result);
             }
             return result;
@@ -479,28 +556,73 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
             return "DubboReferenceFactory" + beanMap;
         }
 
+        private static class DubboDBEnumFieldIntercept<JOIN_POINT> extends EnumDBFieldIntercept<JOIN_POINT> {
+            private final String beanName;
+            private final ReferenceConfig<Api> reference;
+            private final boolean argumentFields;
+
+            private DubboDBEnumFieldIntercept(String beanName, ReferenceConfig<Api> reference, boolean argumentFields) {
+                this.beanName = beanName;
+                this.reference = reference;
+                this.argumentFields = argumentFields;
+            }
+
+            @Override
+            public Map<String, Map<String, Object>> selectEnumGroupKeyValueMap(List<CField> cFields, Set<String> groups, Collection<Object> keys) {
+                Api api = reference.get();
+                Map<String, Map<String, Object>> result = api.selectEnumGroupKeyValueMap(beanName, argumentFields ? convert(cFields) : null, groups, keys);
+                return convertAsyncIfNeed(result, reference.isAsync(), cFields, this);
+            }
+
+            private Map<String, Map<String, Object>> convertAsyncIfNeed(Map<String, Map<String, Object>> result, Boolean async, List<CField> cFields, Object cacheKey) {
+                if (Boolean.TRUE.equals(async)) {
+                    CompletableFuture<Map<String, Map<String, Object>>> dubboFuture = RpcContext.getContext().getCompletableFuture();
+                    SnapshotCompletableFuture<Map<String, Object>> future = ReturnFieldDispatchAop.startAsync(cFields, cacheKey);
+                    if (future == null) {
+                        try {
+                            return dubboFuture.get();
+                        } catch (Exception e) {
+                            PlatformDependentUtil.sneakyThrows(PlatformDependentUtil.unwrap(e));
+                            return null;
+                        }
+                    } else {
+                        dubboFuture.whenComplete((groupMap, throwable) -> future.complete(flatMap(groupMap), throwable));
+                        return result;
+                    }
+                } else {
+                    return result;
+                }
+            }
+
+            @Override
+            public String toString() {
+                return "DubboDBEnumFieldIntercept{" + beanName + '}';
+            }
+        }
+
         private static class DubboCompositeFieldIntercept<JOIN_POINT> implements CompositeFieldIntercept<Object, Object, JOIN_POINT> {
             private final String beanName;
             private final ReferenceConfig<Api> reference;
+            private final boolean argumentFields;
             private final KeyNameFieldIntercept<Object, JOIN_POINT> keyNameFieldIntercept = new KeyNameFieldIntercept<Object, JOIN_POINT>(Object.class) {
                 @Override
                 public Map<Object, ?> selectObjectMapByKeys(List<CField> cFields, Collection<Object> keys) {
                     Api api = reference.get();
-                    Map<Object, ?> result = api.selectNameMapByKeys(beanName, keys);
-                    return convertAsyncIfNeed(result, cFields, this);
+                    Map<Object, ?> result = api.selectSerializeNameMapByKeys(beanName, argumentFields ? convert(cFields) : null, keys);
+                    return convertAsyncIfNeed(result, reference.isAsync(), cFields, this);
                 }
 
                 @Override
                 public String toString() {
-                    return "KeyNameFieldIntercept{" + beanName + '}';
+                    return "DubboKeyNameFieldIntercept{" + beanName + '}';
                 }
             };
             private final KeyValueFieldIntercept<Object, Object, JOIN_POINT> keyValueFieldIntercept = new KeyValueFieldIntercept<Object, Object, JOIN_POINT>(Object.class, Object.class) {
                 @Override
                 public Map<Object, Object> selectValueMapByKeys(List<CField> cFields, Collection<Object> keys) {
                     Api api = reference.get();
-                    Map<Object, Object> result = api.selectValueMapByKeys(beanName, keys);
-                    return convertAsyncIfNeed(result, cFields, this);
+                    Map<Object, Object> result = api.selectSerializeValueMapByKeys(beanName, argumentFields ? convert(cFields) : null, keys);
+                    return convertAsyncIfNeed(result, reference.isAsync(), cFields, this);
                 }
 
                 @Override
@@ -509,13 +631,14 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
                 }
             };
 
-            private DubboCompositeFieldIntercept(String beanName, ReferenceConfig<Api> reference) {
+            private DubboCompositeFieldIntercept(String beanName, ReferenceConfig<Api> reference, boolean argumentFields) {
                 this.beanName = beanName;
                 this.reference = reference;
+                this.argumentFields = argumentFields;
             }
 
-            private <T> T convertAsyncIfNeed(T result, List<CField> cFields, Object cacheKey) {
-                if (Boolean.TRUE.equals(reference.isAsync())) {
+            private static <T> T convertAsyncIfNeed(T result, Boolean async, List<CField> cFields, Object cacheKey) {
+                if (Boolean.TRUE.equals(async)) {
                     CompletableFuture<T> dubboFuture = RpcContext.getContext().getCompletableFuture();
                     SnapshotCompletableFuture<T> future = ReturnFieldDispatchAop.startAsync(cFields, cacheKey);
                     if (future == null) {

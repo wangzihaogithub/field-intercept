@@ -1,9 +1,13 @@
 package com.github.fieldintercept.annotation;
 
+import com.github.fieldintercept.CField;
+import com.github.fieldintercept.util.AnnotationUtil;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.function.Function;
 
 /**
  * 枚举数据库字段消费
@@ -24,6 +28,13 @@ public @interface EnumDBFieldConsumer {
      * @return 枚举
      */
     String[] value();
+
+    /**
+     * value解析
+     *
+     * @return value解析
+     */
+    Class<? extends ValueParser> valueParser() default DefaultValueParser.class;
 
     /**
      * 通常用于告知aop. id字段,或者key字段
@@ -56,6 +67,24 @@ public @interface EnumDBFieldConsumer {
     @Retention(RetentionPolicy.RUNTIME)
     @Target({ElementType.ANNOTATION_TYPE})
     @interface Extends {
+    }
+
+    interface ValueParser extends Function<CField, String[]> {
+
+    }
+
+    class DefaultValueParser implements ValueParser {
+        @Override
+        public String[] apply(CField cField) {
+            Object value = AnnotationUtil.getValue(cField.getAnnotation());
+            if (value instanceof String[]) {
+                return (String[]) value;
+            } else if (value instanceof String) {
+                return new String[]{(String) value};
+            } else {
+                return null;
+            }
+        }
     }
 
 }

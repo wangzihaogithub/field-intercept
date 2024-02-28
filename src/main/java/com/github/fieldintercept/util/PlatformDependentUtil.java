@@ -4,8 +4,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.UndeclaredThrowableException;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -18,6 +17,7 @@ public class PlatformDependentUtil {
     public static final boolean EXIST_SPRING;
     public static final boolean EXIST_SPRING_WEB;
     public static final Class<? extends Annotation> SPRING_INDEXED_ANNOTATION;
+    public static final String ATTACHMENT_PREFIX = "_fieldintercept";
     private static final Method METHOD_GET_LOGGER;
     private static final Method METHOD_LOGGER_ERROR;
     private static final Method METHOD_LOGGER_TRACE;
@@ -256,6 +256,34 @@ public class PlatformDependentUtil {
             }
         }
         return cause;
+    }
+
+    public static <KEY, VALUE> Map<KEY, VALUE> mergeAttachment(Map<KEY, VALUE> valueMap, Map<String, Object> attachment) {
+        if (attachment == null || attachment.isEmpty() || valueMap == null || valueMap.isEmpty()) {
+            return valueMap;
+        } else {
+            LinkedHashMap map = new LinkedHashMap<>(valueMap.size() + ((int) (attachment.size() / 0.75F + 1)));
+            map.putAll(valueMap);
+            for (Map.Entry<String, Object> entry : attachment.entrySet()) {
+                map.put(ATTACHMENT_PREFIX + entry.getKey(), entry.getValue());
+            }
+            return map;
+        }
+    }
+
+    public static Map<String, Object> removeAttachment(Map valueMap) {
+        Map<String, Object> attachment = null;
+        if (valueMap != null && !valueMap.isEmpty()) {
+            for (Object key : new ArrayList<>(valueMap.keySet())) {
+                if (key instanceof String && ((String) key).startsWith(ATTACHMENT_PREFIX)) {
+                    if (attachment == null) {
+                        attachment = new LinkedHashMap<>();
+                    }
+                    attachment.put(((String) key).substring(ATTACHMENT_PREFIX.length()), valueMap.remove(key));
+                }
+            }
+        }
+        return attachment == null ? new LinkedHashMap<>() : attachment;
     }
 
     public static class RunnableCompletableFuture extends CompletableFuture<Void> implements Runnable {
