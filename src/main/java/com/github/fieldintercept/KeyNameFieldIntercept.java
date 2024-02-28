@@ -164,15 +164,8 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         return nameMap;
     }
 
-    public Map<KEY, ?> selectSerializeNameMapByKeys(List<CField.SerializeCField> cFields, Collection<KEY> keys) {
-        List<CField> cFieldList = new ArrayList<>(cFields.size());
-        for (CField.SerializeCField cField : cFields) {
-            try {
-                cFieldList.add(new CField(cField));
-            } catch (ClassNotFoundException | NoSuchFieldException e) {
-                PlatformDependentUtil.sneakyThrows(e);
-            }
-        }
+    public Map<KEY, ?> selectSerializeNameMapByKeys(List<CField.SerializeCField> serializeCFields, Collection<KEY> keys) {
+        List<CField> cFieldList = CField.parse(serializeCFields);
         Map<KEY, ?> nameMap = selectNameMapByKeys(cFieldList, keys);
         if (nameMap == null) {
             nameMap = selectNameListMapByKeys(cFieldList, keys);
@@ -180,11 +173,11 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         if (nameMap == null && selectNameMapByKeys != null) {
             nameMap = selectNameMapByKeys.apply(keys);
         }
-        Map<String, Object> attachment = newtSerializeAttachment(cFields, (Map<KEY, Object>) nameMap);
+        Map<String, Object> attachment = newtSerializeAttachment(serializeCFields, (Map<KEY, Object>) nameMap);
         return PlatformDependentUtil.mergeAttachment(nameMap, attachment);
     }
 
-    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> cFields, Map<KEY, Object> nameMap) {
+    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> serializeCFields, Map<KEY, Object> nameMap) {
         return null;
     }
 

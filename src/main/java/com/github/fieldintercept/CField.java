@@ -132,6 +132,9 @@ public class CField {
     }
 
     public static List<CField> parse(List<SerializeCField> cFields) {
+        if (cFields == null) {
+            return Collections.emptyList();
+        }
         List<CField> cFieldList = new ArrayList<>(cFields.size());
         for (CField.SerializeCField serializeCField : cFields) {
             CField cField = serializeCField.asCField();

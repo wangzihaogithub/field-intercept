@@ -159,13 +159,13 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
         return null;
     }
 
-    public Map<KEY, VALUE> selectSerializeValueMapByKeys(List<CField.SerializeCField> cFields, Collection<KEY> keys) {
-        Map<KEY, VALUE> valueMap = selectValueMapByKeys(CField.parse(cFields), keys);
-        Map<String, Object> attachment = newtSerializeAttachment(cFields, valueMap);
+    public Map<KEY, VALUE> selectSerializeValueMapByKeys(List<CField.SerializeCField> serializeCFields, Collection<KEY> keys) {
+        Map<KEY, VALUE> valueMap = selectValueMapByKeys(CField.parse(serializeCFields), keys);
+        Map<String, Object> attachment = newtSerializeAttachment(serializeCFields, valueMap);
         return PlatformDependentUtil.mergeAttachment(valueMap, attachment);
     }
 
-    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> cFields, Map<KEY, VALUE> valueMap) {
+    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> serializeCFields, Map<KEY, VALUE> valueMap) {
         return null;
     }
 
