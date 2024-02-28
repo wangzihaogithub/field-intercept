@@ -6,11 +6,15 @@ import java.util.*;
 
 public class AnnotationUtil {
 
-    public static Object getValue(Annotation annotation) {
-        return getValue(annotation, "value");
+    public static <T> T getValue(Annotation annotation) {
+        return getValue(annotation, "value", null);
     }
 
-    public static Object getValue(Annotation annotation, String attributeName) {
+    public static <T> T getValue(Annotation annotation, String attributeName) {
+        return getValue(annotation, attributeName, null);
+    }
+
+    public static <T> T getValue(Annotation annotation, String attributeName, Class<T> type) {
         Method declaredMethod;
         try {
             declaredMethod = annotation.annotationType().getDeclaredMethod(attributeName);
@@ -21,18 +25,15 @@ public class AnnotationUtil {
             return null;
         }
         try {
-            return declaredMethod.invoke(annotation);
+            Object invoke = declaredMethod.invoke(annotation);
+            return type == null ? (T) invoke : TypeUtil.cast(invoke, type);
         } catch (IllegalAccessException | InvocationTargetException e) {
             return null;
         }
     }
 
-    public interface AnnotationProxy {
-
-    }
-
-    private static <T extends Annotation> T cast(Annotation annotation, Class<T> type) {
-        if (type.isAssignableFrom(annotation.annotationType())) {
+    public static <T extends Annotation> T cast(Annotation annotation, Class<T> type) {
+        if (annotation == null || type == null || type.isAssignableFrom(annotation.annotationType())) {
             return (T) annotation;
         } else {
             Object proxy = Proxy.newProxyInstance(annotation.annotationType().getClassLoader(), new Class[]{type, AnnotationProxy.class}, new GetAnnotationInvocationHandler<>(annotation, type));
@@ -40,7 +41,7 @@ public class AnnotationUtil {
         }
     }
 
-    public static <T extends Annotation> T findExtendsAnnotation(Annotation[] fieldAnnotations, Collection<Class<? extends Annotation>> finds, Class<T> type, Map<Class<?>, Boolean> cacheMap) {
+    public static <T extends Annotation> Annotation findExtendsAnnotation(Annotation[] fieldAnnotations, Collection<Class<? extends Annotation>> finds, Map<Class<?>, Boolean> cacheMap) {
         if (fieldAnnotations != null && fieldAnnotations.length > 0) {
             if (cacheMap == null) {
                 cacheMap = new HashMap<>();
@@ -48,7 +49,7 @@ public class AnnotationUtil {
             for (Annotation annotation : fieldAnnotations) {
                 boolean existAnnotation = isExistAnnotation(annotation.annotationType(), finds, cacheMap);
                 if (existAnnotation) {
-                    return cast(annotation, type);
+                    return annotation;
                 }
             }
         }
@@ -109,6 +110,10 @@ public class AnnotationUtil {
         return existAnnotation;
     }
 
+    public interface AnnotationProxy {
+
+    }
+
     private static class GetAnnotationInvocationHandler<T> implements InvocationHandler {
         private static final Class<?>[] EMPTY_PARAMETER_TYPES = new Class[0];
         private final Annotation source;
@@ -118,6 +123,14 @@ public class AnnotationUtil {
         private GetAnnotationInvocationHandler(Annotation source, Class<T> type) {
             this.source = source;
             this.type = type;
+        }
+
+        private static Object cast(Object item, Class<?> componentType) {
+            if (item instanceof Annotation) {
+                return AnnotationUtil.cast((Annotation) item, (Class<? extends Annotation>) componentType);
+            } else {
+                return TypeUtil.cast(item, componentType);
+            }
         }
 
         @Override
@@ -176,14 +189,6 @@ public class AnnotationUtil {
                 }
             }
             return returnResult;
-        }
-
-        private static Object cast(Object item, Class<?> componentType) {
-            if (item instanceof Annotation) {
-                return AnnotationUtil.cast((Annotation) item, (Class<? extends Annotation>) componentType);
-            } else {
-                return TypeUtil.cast(item, componentType);
-            }
         }
 
         private Object castResult(Object result, Class<?> resultClass, Class<?> returnType) {

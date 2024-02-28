@@ -1,9 +1,6 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.util.AnnotationUtil;
-import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.SnapshotCompletableFuture;
-import com.github.fieldintercept.util.TypeUtil;
+import com.github.fieldintercept.util.*;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
@@ -92,11 +89,13 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
                     putCache(currentLocalCache, result);
                 }
                 if (!valueMap.isEmpty()) {
-                    setProperty(cFields, valueMap);
+                    Map<String, Object> attachment = PlatformDependentUtil.removeAttachment(valueMap);
+                    setProperty(cFields, valueMap, attachment);
                 }
             });
         } else if (!valueMap.isEmpty()) {
-            setProperty(cFields, valueMap);
+            Map<String, Object> attachment = PlatformDependentUtil.removeAttachment(valueMap);
+            setProperty(cFields, valueMap, attachment);
         }
     }
 
@@ -160,6 +159,16 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
         return null;
     }
 
+    public Map<KEY, VALUE> selectSerializeValueMapByKeys(List<CField.SerializeCField> cFields, Collection<KEY> keys) {
+        Map<KEY, VALUE> valueMap = selectValueMapByKeys(CField.parse(cFields), keys);
+        Map<String, Object> attachment = newtSerializeAttachment(cFields, valueMap);
+        return PlatformDependentUtil.mergeAttachment(valueMap, attachment);
+    }
+
+    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> cFields, Map<KEY, VALUE> valueMap) {
+        return null;
+    }
+
     public Map<KEY, VALUE> selectValueMapByKeys(List<CField> cFields, Collection<KEY> keys) {
         Map<KEY, VALUE> valueMap = selectValueMapByKeys(keys);
         if (valueMap == null) {
@@ -171,10 +180,15 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
         return valueMap;
     }
 
-    protected KEY[] rewriteKeyDataIfNeed(KEY keyData, CField cField, Map<KEY, VALUE> valueMap) {
-        KEY[] arr = (KEY[]) Array.newInstance(keyData.getClass(), 1);
-        arr[0] = keyData;
-        return arr;
+    protected KEY[] rewriteKeyDataIfNeed(KEY keyData, CField cField, Map<KEY, VALUE> valueMap, Map<String, Object> attachment) {
+        Object[] attachmentValue;
+        if (attachment != null && !attachment.isEmpty() && (attachmentValue = TypeUtil.cast(attachment.get(cField.keyDataId(keyData)), Object[].class)) != null) {
+            return (KEY[]) attachmentValue;
+        } else {
+            KEY[] arr = (KEY[]) Array.newInstance(keyData.getClass(), 1);
+            arr[0] = keyData;
+            return arr;
+        }
     }
 
     protected Set<KEY> getKeyDataByFields(List<CField> cFields) {
@@ -299,7 +313,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
         }
     }
 
-    protected void setProperty(List<CField> cFieldList, Map<KEY, VALUE> valueMap) {
+    protected void setProperty(List<CField> cFieldList, Map<KEY, VALUE> valueMap, Map<String, Object> attachment) {
         Map<String, VALUE> stringKeyMap = null;
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
@@ -316,7 +330,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
                     value = (VALUE) Array.newInstance(genericType, 0);
                 }
             } else if (keyDataList.size() == 1) {
-                KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, valueMap);
+                KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, valueMap, attachment);
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(valueMap, rewriteKeyDataList);
                 if (value == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
@@ -362,7 +376,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
                 int i = 0;
                 for (KEY keyData : keyDataList) {
                     i++;
-                    KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, valueMap);
+                    KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, valueMap, attachment);
                     setKeyData(cField, rewriteKeyDataList);
                     VALUE eachValue = choseValue(valueMap, rewriteKeyDataList);
                     if (eachValue == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {

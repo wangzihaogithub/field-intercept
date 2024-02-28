@@ -1,9 +1,6 @@
 package com.github.fieldintercept;
 
-import com.github.fieldintercept.util.AnnotationUtil;
-import com.github.fieldintercept.util.BeanMap;
-import com.github.fieldintercept.util.SnapshotCompletableFuture;
-import com.github.fieldintercept.util.TypeUtil;
+import com.github.fieldintercept.util.*;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
@@ -79,11 +76,13 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
                     putCache(currentLocalCache, result);
                 }
                 if (!nameMap.isEmpty()) {
-                    setProperty(cFields, nameMap);
+                    Map<String, Object> attachment = PlatformDependentUtil.removeAttachment(nameMap);
+                    setProperty(cFields, nameMap, attachment);
                 }
             });
         } else if (!nameMap.isEmpty()) {
-            setProperty(cFields, nameMap);
+            Map<String, Object> attachment = PlatformDependentUtil.removeAttachment(nameMap);
+            setProperty(cFields, nameMap, attachment);
         }
     }
 
@@ -165,6 +164,30 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         return nameMap;
     }
 
+    public Map<KEY, ?> selectSerializeNameMapByKeys(List<CField.SerializeCField> cFields, Collection<KEY> keys) {
+        List<CField> cFieldList = new ArrayList<>(cFields.size());
+        for (CField.SerializeCField cField : cFields) {
+            try {
+                cFieldList.add(new CField(cField));
+            } catch (ClassNotFoundException | NoSuchFieldException e) {
+                PlatformDependentUtil.sneakyThrows(e);
+            }
+        }
+        Map<KEY, ?> nameMap = selectNameMapByKeys(cFieldList, keys);
+        if (nameMap == null) {
+            nameMap = selectNameListMapByKeys(cFieldList, keys);
+        }
+        if (nameMap == null && selectNameMapByKeys != null) {
+            nameMap = selectNameMapByKeys.apply(keys);
+        }
+        Map<String, Object> attachment = newtSerializeAttachment(cFields, (Map<KEY, Object>) nameMap);
+        return PlatformDependentUtil.mergeAttachment(nameMap, attachment);
+    }
+
+    protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> cFields, Map<KEY, Object> nameMap) {
+        return null;
+    }
+
     public Map<KEY, Collection<String>> selectNameListMapByKeys(List<CField> cFields, Collection<KEY> keys) {
         return selectNameListMapByKeys(keys);
     }
@@ -173,10 +196,15 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         return null;
     }
 
-    protected KEY[] rewriteKeyDataIfNeed(KEY key, CField cField, Map<KEY, Object> nameMap) {
-        KEY[] arr = (KEY[]) Array.newInstance(key.getClass(), 1);
-        arr[0] = key;
-        return arr;
+    protected KEY[] rewriteKeyDataIfNeed(KEY keyData, CField cField, Map<KEY, Object> nameMap, Map<String, Object> attachment) {
+        Object[] attachmentValue;
+        if (attachment != null && !attachment.isEmpty() && (attachmentValue = TypeUtil.cast(attachment.get(cField.keyDataId(keyData)), Object[].class)) != null) {
+            return (KEY[]) attachmentValue;
+        } else {
+            KEY[] arr = (KEY[]) Array.newInstance(keyData.getClass(), 1);
+            arr[0] = keyData;
+            return arr;
+        }
     }
 
     protected Set<KEY> getKeyDataByFields(List<CField> cFields) {
@@ -278,7 +306,7 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
         return keyDataList;
     }
 
-    protected void setProperty(List<CField> cFieldList, Map<KEY, Object> nameMap) {
+    protected void setProperty(List<CField> cFieldList, Map<KEY, Object> nameMap, Map<String, Object> attachment) {
         Map<String, Object> stringKeyMap = null;
         for (CField cField : cFieldList) {
             Class genericType = cField.getGenericType();
@@ -295,7 +323,7 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
                     value = Array.newInstance(genericType, 0);
                 }
             } else if (keyDataList.size() == 1) {
-                KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, nameMap);
+                KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyDataList.iterator().next(), cField, nameMap, attachment);
                 setKeyData(cField, rewriteKeyDataList);
                 value = choseValue(nameMap, rewriteKeyDataList);
                 if (value == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {
@@ -349,7 +377,7 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
                 int i = 0;
                 for (KEY keyData : keyDataList) {
                     i++;
-                    KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, nameMap);
+                    KEY[] rewriteKeyDataList = rewriteKeyDataIfNeed(keyData, cField, nameMap, attachment);
                     setKeyData(cField, rewriteKeyDataList);
                     Object eachValue = choseValue(nameMap, rewriteKeyDataList);
                     if (eachValue == null && rewriteKeyDataList != null && rewriteKeyDataList.length > 0) {

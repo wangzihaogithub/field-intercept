@@ -1,10 +1,11 @@
 package com.github.fieldintercept;
 
 // import com.github.fieldintercept.annotation.EnableFieldIntercept;
+
+import com.github.case1.enumer.BizEnumGroupEnum;
 import com.github.fieldintercept.annotation.ReturnFieldAop;
 import com.github.fieldintercept.entity.ApplyOrder;
 import com.github.fieldintercept.entity.BaseEnumGroupEnum;
-import com.github.fieldintercept.entity.EnumDBFieldConsumer;
 import com.github.fieldintercept.util.AnnotationUtil;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -16,7 +17,6 @@ import org.springframework.core.task.TaskDecorator;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
-import java.lang.annotation.Annotation;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -41,9 +41,9 @@ public class FieldInterceptApplicationTest {
     }
 
     @Configuration
-    public static class Config{
+    public static class Config {
         @Bean
-        public TaskDecorator taskDecorator1(){
+        public TaskDecorator taskDecorator1() {
             return new TaskDecorator() {
                 @Override
                 public Runnable decorate(Runnable runnable) {
@@ -54,7 +54,7 @@ public class FieldInterceptApplicationTest {
 
         @Primary
         @Bean
-        public TaskDecorator taskDecorator2(){
+        public TaskDecorator taskDecorator2() {
             return new TaskDecorator() {
                 @Override
                 public Runnable decorate(Runnable runnable) {
@@ -73,13 +73,13 @@ public class FieldInterceptApplicationTest {
     }
 
     @Component
-    public static class MyEnumDBFieldIntercept extends EnumDBFieldIntercept {
+    public static class MyEnumDBFieldIntercept extends EnumDBFieldIntercept<Object> {
         @Override
-        public String[] getGroups(Annotation annotation) {
-            String[] groups = super.getGroups(annotation);
+        public String[] getGroups(CField cField) {
+            String[] groups = super.getGroups(cField);
             if (groups == null) {
-                BaseEnumGroupEnum[] value = (BaseEnumGroupEnum[]) AnnotationUtil.getValue(annotation);
-                groups = Stream.of(value).map(BaseEnumGroupEnum::getGroup)
+                BizEnumGroupEnum[] value = (BizEnumGroupEnum[]) AnnotationUtil.getValue(cField.getAnnotation());
+                groups = Stream.of(value).map(BizEnumGroupEnum::getGroup)
                         .toArray(String[]::new);
             }
             return groups;

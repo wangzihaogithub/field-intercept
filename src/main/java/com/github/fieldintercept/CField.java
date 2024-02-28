@@ -7,6 +7,8 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * AOP用的消费字段
@@ -14,10 +16,16 @@ import java.util.*;
  * @author acer01
  */
 public class CField {
+    private static final AtomicLong idIncr = new AtomicLong();
+    private static final Set<String> NO_SUCH_FIELD_SET = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> CLASS_NOT_FOUND_SET = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final long id;
     private final Object bean;
     private final BeanMap beanHandler;
     private final Field field;
     private final Annotation annotation;
+    private final Annotation castAnnotation;
+    private final Class<? extends Annotation> castType;
     private final String consumerName;
     private final Class genericType;
     private final Object configurableEnvironment;
@@ -37,14 +45,61 @@ public class CField {
     private List<String> placeholders;
     private Object value;
 
-    public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation, Object configurableEnvironment) {
+    public CField(String consumerName, BeanMap beanHandler, Field field, Annotation annotation, Annotation castAnnotation, Class<? extends Annotation> castType, Object configurableEnvironment) {
+        this.id = idIncr.getAndIncrement();
         this.consumerName = consumerName;
         this.beanHandler = beanHandler;
         this.bean = beanHandler.getBean();
         this.field = field;
         this.annotation = annotation;
+        this.castAnnotation = castAnnotation;
+        this.castType = castType;
         this.genericType = BeanUtil.getGenericType(field);
         this.configurableEnvironment = configurableEnvironment;
+    }
+
+    public CField(SerializeCField serializeCField) throws ClassNotFoundException, NoSuchFieldException {
+        Object bean = serializeCField.bean;
+        String consumerName = serializeCField.consumerName;
+        int annotationIndex = serializeCField.annotationIndex;
+        String declaringClassName = serializeCField.declaringClassName;
+        String castTypeName = serializeCField.castTypeName;
+        String fieldName = serializeCField.fieldName;
+        Class declaringClass;
+        try {
+            declaringClass = Class.forName(declaringClassName);
+        } catch (ClassNotFoundException e) {
+            CLASS_NOT_FOUND_SET.add(declaringClassName);
+            throw e;
+        }
+        Class castTypeClass;
+        try {
+            castTypeClass = Class.forName(castTypeName);
+        } catch (ClassNotFoundException e) {
+            CLASS_NOT_FOUND_SET.add(castTypeName);
+            throw e;
+        }
+        Field field;
+        try {
+            field = declaringClass.getDeclaredField(fieldName);
+        } catch (NoSuchFieldException e) {
+            NO_SUCH_FIELD_SET.add(declaringClassName + "#" + fieldName);
+            throw e;
+        }
+        Annotation[] declaredAnnotations = field.getDeclaredAnnotations();
+        ReturnFieldDispatchAop<Object> instance = ReturnFieldDispatchAop.getInstance();
+        serializeCField.cField = this;
+        this.id = serializeCField.id;
+        this.consumerName = consumerName;
+        this.keyDataList = serializeCField.keyDataList;
+        this.beanHandler = new BeanMap(bean);
+        this.bean = bean;
+        this.field = field;
+        this.annotation = annotationIndex < declaredAnnotations.length ? declaredAnnotations[annotationIndex] : null;
+        this.castAnnotation = AnnotationUtil.cast(this.annotation, castTypeClass);
+        this.genericType = BeanUtil.getGenericType(field);
+        this.configurableEnvironment = instance != null ? instance.getConfigurableEnvironment() : null;
+        this.castType = castTypeClass;
     }
 
     private static boolean isDeconstruct(String attr) {
@@ -76,6 +131,21 @@ public class CField {
         return beginIndex != -1 && template.indexOf("}", beginIndex) != -1;
     }
 
+    public static List<CField> parse(List<SerializeCField> cFields) {
+        List<CField> cFieldList = new ArrayList<>(cFields.size());
+        for (CField.SerializeCField serializeCField : cFields) {
+            CField cField = serializeCField.asCField();
+            if (cField != null) {
+                cFieldList.add(cField);
+            }
+        }
+        return cFieldList;
+    }
+
+    public String keyDataId(Object keyData) {
+        return "kd_" + id + "_" + keyData;
+    }
+
     public String getConsumerName() {
         return consumerName;
     }
@@ -86,6 +156,14 @@ public class CField {
 
     public Annotation getAnnotation() {
         return annotation;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public Annotation getCastAnnotation() {
+        return castAnnotation;
     }
 
     public Object getBean() {
@@ -231,5 +309,120 @@ public class CField {
     @Override
     public String toString() {
         return bean.getClass().getSimpleName() + "." + field.getName() + " = " + getValue();
+    }
+
+    public static class SerializeCField {
+        private long id;
+        private Object bean;
+        private Collection keyDataList;
+        private String consumerName;
+        private int annotationIndex;
+        private String declaringClassName;
+        private String castTypeName;
+        private String fieldName;
+        private transient CField cField;
+
+        public SerializeCField() {
+
+        }
+
+        public SerializeCField(CField cField) {
+            int index = 0;
+            for (Annotation declaredAnnotation : cField.field.getDeclaredAnnotations()) {
+                if (declaredAnnotation == cField.annotation) {
+                    break;
+                }
+                index++;
+            }
+            this.id = cField.id;
+            this.keyDataList = cField.keyDataList;
+            this.annotationIndex = index;
+            this.bean = cField.bean;
+            this.consumerName = cField.consumerName;
+            this.declaringClassName = cField.field.getDeclaringClass().getName();
+            this.castTypeName = cField.castType.getName();
+            this.fieldName = cField.field.getName();
+        }
+
+        public CField asCField() {
+            if (cField == null) {
+                if (CLASS_NOT_FOUND_SET.contains(declaringClassName)
+                        || CLASS_NOT_FOUND_SET.contains(castTypeName)
+                        || NO_SUCH_FIELD_SET.contains(declaringClassName + "#" + fieldName)) {
+                    return null;
+                } else {
+                    try {
+                        cField = new CField(this);
+                    } catch (ClassNotFoundException | NoSuchFieldException ignored) {
+
+                    }
+                }
+            }
+            return cField;
+        }
+
+        public long getId() {
+            return id;
+        }
+
+        public void setId(long id) {
+            this.id = id;
+        }
+
+        public Collection getKeyDataList() {
+            return keyDataList;
+        }
+
+        public void setKeyDataList(Collection keyDataList) {
+            this.keyDataList = keyDataList;
+        }
+
+        public Object getBean() {
+            return bean;
+        }
+
+        public void setBean(Object bean) {
+            this.bean = bean;
+        }
+
+        public String getConsumerName() {
+            return consumerName;
+        }
+
+        public void setConsumerName(String consumerName) {
+            this.consumerName = consumerName;
+        }
+
+        public int getAnnotationIndex() {
+            return annotationIndex;
+        }
+
+        public void setAnnotationIndex(int annotationIndex) {
+            this.annotationIndex = annotationIndex;
+        }
+
+        public String getDeclaringClassName() {
+            return declaringClassName;
+        }
+
+        public void setDeclaringClassName(String declaringClassName) {
+            this.declaringClassName = declaringClassName;
+        }
+
+        public String getCastTypeName() {
+            return castTypeName;
+        }
+
+        public void setCastTypeName(String castTypeName) {
+            this.castTypeName = castTypeName;
+        }
+
+        public String getFieldName() {
+            return fieldName;
+        }
+
+        public void setFieldName(String fieldName) {
+            this.fieldName = fieldName;
+        }
     }
 }
