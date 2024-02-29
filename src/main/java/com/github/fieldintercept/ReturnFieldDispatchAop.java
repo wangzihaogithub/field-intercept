@@ -1214,23 +1214,38 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         private void addCollect(Object bean, ArrayList<Object> stack) throws InvocationTargetException, IllegalAccessException {
-            if (bean instanceof Type) {
-                return;
-            }
             Class<?> rootClass = bean.getClass();
+            // BasicType
             if (isBasicType(rootClass)) {
                 return;
             }
 
+            // FieldCompletableFuture
             if (bean instanceof FieldCompletableFuture) {
                 addFuture((FieldCompletableFuture) bean);
                 stack.add(((FieldCompletableFuture<?>) bean).value());
                 return;
             }
 
+            // Iterable
             if (bean instanceof Iterable) {
                 if (bean instanceof Collection) {
-                    stack.addAll((Collection<?>) bean);
+                    Collection<?> collection = (Collection<?>) bean;
+                    Iterator<?> iterator = collection.iterator();
+                    if (iterator.hasNext()) {
+                        Object next = iterator.next();
+                        if (next != null && isBasicType(next.getClass())) {
+                            stack.add(next);
+                            while (iterator.hasNext()) {
+                                next = iterator.next();
+                                if (next != null && !isBasicType(next.getClass())) {
+                                    stack.add(next);
+                                }
+                            }
+                        } else {
+                            stack.addAll(collection);
+                        }
+                    }
                 } else {
                     for (Object each : (Iterable) bean) {
                         stack.add(each);
@@ -1239,6 +1254,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 return;
             }
 
+            // Array
             if (rootClass.isArray()) {
                 for (int i = 0, length = Array.getLength(bean); i < length; i++) {
                     Object each = Array.get(bean, i);
@@ -1247,13 +1263,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 return;
             }
 
+            // Map
             boolean isEntity = isEntity(rootClass);
-
             if (!isEntity && bean instanceof Map) {
                 stack.addAll(((Map) bean).values());
                 return;
             }
 
+            // Bean
             BeanMap beanHandler = null;
             Map<String, PropertyDescriptor> propertyDescriptor = BeanMap.findPropertyDescriptor(rootClass);
             for (PropertyDescriptor descriptor : propertyDescriptor.values()) {
@@ -1268,19 +1285,32 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 if (field == null) {
                     continue;
                 }
-                Class<?> declaringClass = field.getDeclaringClass();
-                if (declaringClass == Object.class) {
-                    continue;
-                }
-
-                if (declaringClass != rootClass && !isEntity(declaringClass)) {
-                    continue;
-                }
 
                 int modifiers = field.getModifiers();
                 if (Modifier.isStatic(modifiers) || Modifier.isFinal(modifiers) || Modifier.isTransient(modifiers)) {
                     continue;
                 }
+
+                Class<?> fieldType = field.getType();
+                boolean isMultiple = isMultiple(fieldType);
+                if (isMultiple) {
+                    try {
+                        // 防止触发 getter方法, 忽略private, 强行取字段值
+                        Object fieldData = aop.getFieldValue(field, bean);
+                        stack.add(fieldData);
+                    } catch (Exception e) {
+                        aop.sneakyThrows(e);
+                    }
+                }
+
+                Class<?> declaringClass = field.getDeclaringClass();
+                if (PlatformDependentUtil.isJdkClass(declaringClass)) {
+                    continue;
+                }
+
+//                if (declaringClass != rootClass && !isEntity(declaringClass)) {
+//                    continue;
+//                }
 
                 //普通消费字段
                 Annotation fieldConsumer = aop.fieldConsumerCache.findDeclaredAnnotation(field);
@@ -1347,7 +1377,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         choseFieldConsumer = routerFieldConsumer.defaultElse();
                         choseFieldConsumerFlag = choseFieldConsumer.value().length() > 0;
                         if (choseFieldConsumerFlag) {
-                            choseFieldConsumerAnnotation = (Annotation) AnnotationUtil.getValue(routerFieldConsumerAnnotation, "defaultElse");
+                            choseFieldConsumerAnnotation = AnnotationUtil.getValue(routerFieldConsumerAnnotation, "defaultElse");
                         }
                     } else {
                         choseFieldConsumerFlag = choseFieldConsumer.value().length() > 0;
@@ -1378,30 +1408,14 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     }
                 }
 
-
-                Class<?> fieldType = field.getType();
-                boolean isMultiple = isMultiple(fieldType);
-                if (isMultiple) {
-                    try {
-                        // 防止触发 getter方法, 忽略private, 强行取字段值
-                        Object fieldData = aop.getFieldValue(field, bean);
-                        stack.add(fieldData);
-                        continue;
-                    } catch (Exception e) {
-                        aop.sneakyThrows(e);
-                    }
-                }
-
-                boolean isFieldEntity = !isBasicType(fieldType) && isEntity(fieldType);
-                if (isFieldEntity) {
+                if (!isBasicType(fieldType)) {
                     try {
                         // 防止触发 getter方法, 忽略private, 强行取字段值
                         Object fieldData = aop.getFieldValue(field, bean);
                         if (fieldData == null) {
                             continue;
                         }
-                        Class<?> fieldDataClass = fieldData.getClass();
-                        if (Boolean.TRUE.equals(aop.skipFieldClassPredicateCache.computeIfAbsent(fieldDataClass, type -> aop.skipFieldClassPredicate.test(fieldDataClass)))) {
+                        if (Boolean.TRUE.equals(aop.skipFieldClassPredicateCache.computeIfAbsent(fieldData.getClass(), type -> aop.skipFieldClassPredicate.test(type)))) {
                             continue;
                         }
                         stack.add(fieldData);
@@ -1413,6 +1427,9 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         private boolean isMultiple(Class type) {
+            if (type == List.class || type == Map.class || type == Set.class || type == Collection.class) {
+                return true;
+            }
             return aop.typeMultipleCacheMap.computeIfAbsent(type, e -> {
                 if (Iterable.class.isAssignableFrom(e)) {
                     return true;
@@ -1425,18 +1442,22 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         public boolean isBasicType(Class type) {
-            return aop.typeBasicCacheMap.computeIfAbsent(type, e -> e.isPrimitive()
-                    || e == String.class
-                    || Type.class.isAssignableFrom(e)
-                    || Number.class.isAssignableFrom(e)
-                    || Date.class.isAssignableFrom(e)
-                    || Boolean.class == e
-                    || TemporalAccessor.class.isAssignableFrom(e)
-                    || e.isEnum());
+            if (type.isPrimitive() || type == String.class || Boolean.class == type || Integer.class == type || Date.class == type || Long.class == type) {
+                return true;
+            }
+            return aop.typeBasicCacheMap.computeIfAbsent(type, e ->
+                    Type.class.isAssignableFrom(e)
+                            || Number.class.isAssignableFrom(e)
+                            || Date.class.isAssignableFrom(e)
+                            || TemporalAccessor.class.isAssignableFrom(e)
+                            || e.isEnum());
         }
 
         private boolean isEntity(Class type) {
             if (type.isInterface()) {
+                return false;
+            }
+            if (PlatformDependentUtil.isJdkClass(type)) {
                 return false;
             }
 

@@ -149,6 +149,10 @@ public class PlatformDependentUtil {
         return false;
     }
 
+    public static boolean isJdkClass(Class type) {
+        return type != null && type.getClassLoader() == null;
+    }
+
     public static boolean isProxyDubboProviderMethod(Object joinPoint) {
         return joinPoint != null
                 && PlatformDependentUtil.EXIST_APACHE_DUBBO
