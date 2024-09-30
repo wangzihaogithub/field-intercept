@@ -65,6 +65,11 @@ public interface CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> extends ReturnF
         return genericType;
     }
 
+    static <KEY, VALUE, JOIN_POINT> CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> newInstance(KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept,
+                                                                                                KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> keyValueFieldIntercept) {
+        return new DefaultCompositeFieldIntercept<>(keyNameFieldIntercept, keyValueFieldIntercept);
+    }
+
     KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept();
 
     KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> keyValueFieldIntercept();
