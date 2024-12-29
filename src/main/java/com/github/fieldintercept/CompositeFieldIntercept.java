@@ -3,7 +3,10 @@ package com.github.fieldintercept;
 import com.github.fieldintercept.util.TypeUtil;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 组合字段字段设置名称
@@ -68,6 +71,19 @@ public interface CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> extends ReturnF
     static <KEY, VALUE, JOIN_POINT> CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> newInstance(KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept,
                                                                                                 KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> keyValueFieldIntercept) {
         return new DefaultCompositeFieldIntercept<>(keyNameFieldIntercept, keyValueFieldIntercept);
+    }
+
+    static <KEY, V, JOIN_POINT> CompositeFieldIntercept<KEY, V, JOIN_POINT> newInstance(Class<KEY> keyClass,
+                                                                                        Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys,
+                                                                                        Function<Collection<KEY>, Map<KEY, V>> selectValueMapByKeys) {
+        return new DefaultCompositeFieldIntercept<>(keyClass, null, selectNameMapByKeys, selectValueMapByKeys);
+    }
+
+    static <KEY, VALUE, JOIN_POINT> CompositeFieldIntercept<KEY, VALUE, JOIN_POINT> newInstance(Class<KEY> keyClass,
+                                                                                                Class<VALUE> valueClass,
+                                                                                                Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys,
+                                                                                                Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys) {
+        return new DefaultCompositeFieldIntercept<>(keyClass, valueClass, selectNameMapByKeys, selectValueMapByKeys);
     }
 
     KeyNameFieldIntercept<KEY, JOIN_POINT> keyNameFieldIntercept();

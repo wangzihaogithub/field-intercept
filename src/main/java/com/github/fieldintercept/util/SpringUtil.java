@@ -1,14 +1,28 @@
 package com.github.fieldintercept.util;
 
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.core.env.*;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 public class SpringUtil {
     private static final Pattern DOT_PATTERN = Pattern.compile("[.]");
+
+    public static void registryBean(BeanDefinitionRegistry registry, String beanName, Supplier<Object> bean) {
+        registry.registerBeanDefinition(beanName,
+                BeanDefinitionBuilder.genericBeanDefinition(Object.class, bean).getBeanDefinition());
+    }
+
+    public static void registryBean(BeanDefinitionRegistry registry, String beanName, Object bean) {
+        Class beanClass = bean.getClass();
+        registry.registerBeanDefinition(beanName,
+                BeanDefinitionBuilder.genericBeanDefinition(beanClass, () -> bean).getBeanDefinition());
+    }
 
     public static String resolvePlaceholders(Collection<String> placeholders, Object configurableEnvironment, Object metadata) {
         if (placeholders == null || placeholders.isEmpty() || metadata == null) {
