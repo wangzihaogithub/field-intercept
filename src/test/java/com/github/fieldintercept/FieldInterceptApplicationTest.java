@@ -36,7 +36,7 @@ public class FieldInterceptApplicationTest {
 
         ApplyOrderService applyOrderService = context.getBean(ApplyOrderService.class);
         ApplyOrder applyOrder = applyOrderService.getById();
-
+        ReturnFieldDispatchAop.staticAutowiredFieldValue(applyOrder);
         System.out.println("applyOrder = " + applyOrder);
     }
 

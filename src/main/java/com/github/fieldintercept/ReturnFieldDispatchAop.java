@@ -33,6 +33,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
      * 在调用方上执行groupKey静态方法
      */
     public static final String BEAN_NAME_ARG_GROUP_METHOD = "groupKeyStaticMethod";
+    public static final Executor BLOCK_EXECUTOR = Runnable::run;
     private static final Pattern QUERY_PATTERN = Pattern.compile("[?]");
     private static final Pattern DOT_PATTERN = Pattern.compile("[.]");
     private static final Map<Class<?>, Boolean> SKIP_FIELD_CLASS_CACHE_MAP = Collections.synchronizedMap(new LinkedHashMap<Class<?>, Boolean>((int) ((6 / 0.75F) + 1), 0.75F, true) {
@@ -49,7 +50,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     protected final AnnotationCache<FieldConsumer> fieldConsumerCache = new AnnotationCache<>(FieldConsumer.class, Arrays.asList(FieldConsumer.class, FieldConsumer.Extends.class), 100);
     protected final AnnotationCache<EnumFieldConsumer> enumFieldConsumerCache = new AnnotationCache<>(EnumFieldConsumer.class, Arrays.asList(EnumFieldConsumer.class, EnumFieldConsumer.Extends.class), 100);
     protected final AnnotationCache<EnumDBFieldConsumer> enumDBFieldConsumerCache = new AnnotationCache<>(EnumDBFieldConsumer.class, Arrays.asList(EnumDBFieldConsumer.class, EnumDBFieldConsumer.Extends.class), 100);
-
     /**
      * 实体类包名一样, 就认为是业务实体类
      */
@@ -126,7 +126,6 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
      */
     private boolean chainCallUseAggregation = false;
     private BatchAggregationEnum batchAggregation;
-
     private BiPredicate<JOIN_POINT, Object> enabled = null;
 
     public ReturnFieldDispatchAop() {
@@ -159,6 +158,20 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public static <T> T staticAutowiredFieldValue(T result) {
         if (INSTANCE != null) {
             return (T) INSTANCE.autowiredFieldValue(result);
+        } else {
+            return result;
+        }
+    }
+
+    public static void staticParallelAutowiredFieldValue(Object... result) {
+        if (INSTANCE != null) {
+            INSTANCE.parallelAutowiredFieldValue(result);
+        }
+    }
+
+    public static <T> T staticParallelAutowiredFieldValue(T result) {
+        if (INSTANCE != null) {
+            return (T) INSTANCE.parallelAutowiredFieldValue(result);
         } else {
             return result;
         }
@@ -264,7 +277,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public void autowiredFieldValue(Object... result) {
         before();
         try {
-            returningAfter(null, result);
+            returningAfter(null, result, true);
         } finally {
             after();
         }
@@ -273,7 +286,26 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public <T> T autowiredFieldValue(T result) {
         before();
         try {
-            returningAfter(null, result);
+            returningAfter(null, result, true);
+        } finally {
+            after();
+        }
+        return result;
+    }
+
+    public void parallelAutowiredFieldValue(Object... result) {
+        before();
+        try {
+            returningAfter(null, result, false);
+        } finally {
+            after();
+        }
+    }
+
+    public <T> T parallelAutowiredFieldValue(T result) {
+        before();
+        try {
+            returningAfter(null, result, false);
         } finally {
             after();
         }
@@ -303,6 +335,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected void returningAfter(JOIN_POINT joinPoint, Object result) {
+        returningAfter(joinPoint, result, false);
+    }
+
+    protected void returningAfter(JOIN_POINT joinPoint, Object result, boolean userBlock) {
         if (result == null) {
             return;
         }
@@ -317,7 +353,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         PlatformDependentUtil.logTrace(ReturnFieldDispatchAop.class, "afterReturning into. joinPoint={}, result={}", joinPoint, result);
         GroupCollect<JOIN_POINT> groupCollectMap = new GroupCollect<>(joinPoint, result, this);
-        groupCollectMap.start(!isInEventLoop(), true);
+        groupCollectMap.start(!isInEventLoop(), true, userBlock);
     }
 
     protected void returnPendingSync(JOIN_POINT joinPoint, Object result, Pending<JOIN_POINT> pending) throws ExecutionException, InterruptedException, TimeoutException {
@@ -342,14 +378,19 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     }
 
     protected void returnRunSync(JOIN_POINT joinPoint, Object result, GroupCollect<JOIN_POINT> groupCollectMap) throws Exception {
-        CompletableFuture<Void> future = AsyncAutowired.start(groupCollectMap);//returnRunSync groupCollectMap.partition().isEmpty()
+        CompletableFuture<Void> future = AsyncAutowired.start(groupCollectMap, groupCollectMap.aop.taskExecutor);//returnRunSync groupCollectMap.partition().isEmpty()
         future.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);
     }
 
     protected void returnRunAsync(JOIN_POINT joinPoint, FieldCompletableFuture<Object> result, GroupCollect<JOIN_POINT> groupCollectMap) throws Exception {
-        CompletableFuture<Void> future = AsyncAutowired.start(groupCollectMap);//returnRunAsync groupCollectMap.partition().isEmpty()
+        CompletableFuture<Void> future = AsyncAutowired.start(groupCollectMap, groupCollectMap.aop.taskExecutor);//returnRunAsync groupCollectMap.partition().isEmpty()
         result.snapshot(taskDecorate);//returnRunAsync
         future.whenComplete(result::complete);
+    }
+
+    protected void returnRunUserSync(JOIN_POINT joinPoint, Object result, GroupCollect<JOIN_POINT> groupCollectMap) throws Exception {
+        CompletableFuture<Void> future = AsyncAutowired.start(groupCollectMap, BLOCK_EXECUTOR);//returnRunUserSync groupCollectMap.partition().isEmpty()
+        future.get(blockGetterTimeoutMilliseconds, TimeUnit.MILLISECONDS);
     }
 
     protected boolean isNeedPending(JOIN_POINT joinPoint, Object returnResult) {
@@ -376,7 +417,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         return returnFieldAopCache.cast(returnFieldAopCache.findDeclaredAnnotation(PlatformDependentUtil.aspectjMethodSignatureGetMethod(joinPoint)));
     }
 
-    protected Pending<JOIN_POINT> addPendingList(GroupCollect<JOIN_POINT> groupCollectMap, boolean block) {
+    protected Pending<JOIN_POINT> newPending(GroupCollect<JOIN_POINT> groupCollectMap) {
         startPendingSignalThreadIfNeed();
         Pending<JOIN_POINT> pending;
         if (groupCollectMap.threadSnapshot != null && groupCollectMap.threadSnapshot.isNeedReplay()) {
@@ -386,14 +427,12 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         } else {
             pending = new Pending<>(groupCollectMap, taskDecorate);
         }
-        if (block) {
-            try {
-                pendingList.putLast(pending);
-            } catch (InterruptedException e) {
-                sneakyThrows(e);
-            }
-            return pending;
-        } else if (pendingList.offerLast(pending)) {
+        return pending;
+    }
+
+    protected Pending<JOIN_POINT> addPendingList(Pending<JOIN_POINT> pending) {
+        startPendingSignalThreadIfNeed();
+        if (pendingList.offerLast(pending)) {
             return pending;
         } else {
             return null;
@@ -809,19 +848,25 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public static class AsyncAutowired<JOIN_POINT> implements BiConsumer<Void, Throwable> {
         private final GroupCollect<JOIN_POINT> groupCollectMap;
         private final SnapshotCompletableFuture<Void> future;
+        private final Executor taskExecutor;
+        private final Function<Runnable, Runnable> taskDecorate;
 
-        private AsyncAutowired(GroupCollect<JOIN_POINT> groupCollectMap) {
+        private AsyncAutowired(GroupCollect<JOIN_POINT> groupCollectMap, Executor taskExecutor, Function<Runnable, Runnable> taskDecorate) {
             this.groupCollectMap = groupCollectMap;
-            this.future = SnapshotCompletableFuture.newInstance(groupCollectMap.aop.taskDecorate);
+            this.taskDecorate = taskDecorate;
+            this.taskExecutor = taskExecutor;
+            this.future = SnapshotCompletableFuture.newInstance(taskDecorate);
         }
 
-        public static <JOIN_POINT> CompletableFuture<Void> start(GroupCollect<JOIN_POINT> groupCollectMap) throws InterruptedException {
-            AsyncAutowired<JOIN_POINT> asyncAutowired = new AsyncAutowired<>(groupCollectMap);
+        public static <JOIN_POINT> CompletableFuture<Void> start(GroupCollect<JOIN_POINT> groupCollectMap,
+                                                                 Executor taskExecutor) throws InterruptedException {
+            Function<Runnable, Runnable> taskDecorate = taskExecutor == BLOCK_EXECUTOR ? Function.identity() : groupCollectMap.aop.taskDecorate;
+            AsyncAutowired<JOIN_POINT> asyncAutowired = new AsyncAutowired<>(groupCollectMap, taskExecutor, taskDecorate);
             asyncAutowired.future.whenComplete(((unused, throwable) -> groupCollectMap.close()));
 
             PlatformDependentUtil.submit(groupCollectMap.partition(),//AsyncAutowired
-                    groupCollectMap.aop.taskExecutor,
-                    groupCollectMap.aop.taskDecorate, !isInEventLoop()).whenComplete(asyncAutowired);
+                    taskExecutor,
+                    taskDecorate, !isInEventLoop()).whenComplete(asyncAutowired);
             return asyncAutowired.future;
         }
 
@@ -845,8 +890,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                             future.complete(null);
                         } else {
                             PlatformDependentUtil.submit(runnableList,
-                                            groupCollectMap.aop.taskExecutor,
-                                            groupCollectMap.aop.taskDecorate, !isInEventLoop())
+                                            taskExecutor,
+                                            taskDecorate, !isInEventLoop())
                                     .whenComplete(this);
                         }
                     }
@@ -1130,7 +1175,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             });
         }
 
-        public boolean start(boolean block, boolean useAggregation) {
+        public boolean start(boolean block, boolean useAggregation, boolean userBlock) {
             try {
                 //收集返回值中的所有实体类
                 if (!collectFlag.get()) {
@@ -1143,21 +1188,30 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                 // 需要批量聚合?
                 if (useAggregation && aop.isNeedPending(joinPoint, result)) {
                     // 入聚合队列
-                    Pending<JOIN_POINT> pending = aop.addPendingList(this, block);
-                    if (pending == null) {
-                        return false;
-                    } else if (result instanceof FieldCompletableFuture) {
-                        // 异步获取结果
-                        aop.returnPendingAsync(joinPoint, (FieldCompletableFuture) result, pending);
-                    } else if (block) {
-                        // 同步获取结果
-                        aop.returnPendingSync(joinPoint, result, pending);
+                    Pending<JOIN_POINT> joinPointPending = aop.newPending(this);
+                    if (userBlock) {
+                        // 用户主动调用单线程阻塞
+                        joinPointPending.autowired(BLOCK_EXECUTOR);
+                    } else {
+                        Pending<JOIN_POINT> pending = aop.addPendingList(joinPointPending);
+                        if (pending == null) {
+                            return false;
+                        } else if (result instanceof FieldCompletableFuture) {
+                            // 异步获取结果
+                            aop.returnPendingAsync(joinPoint, (FieldCompletableFuture) result, pending);
+                        } else if (block) {
+                            // 同步获取结果
+                            aop.returnPendingSync(joinPoint, result, pending);
+                        }
                     }
                 } else {
                     // 拆分任务
                     if (partition().isEmpty()) {
                         // 没有任务
                         close();
+                    } else if (userBlock) {
+                        // 用户主动调用单线程阻塞
+                        aop.returnRunUserSync(joinPoint, result, this);
                     } else if (result instanceof FieldCompletableFuture) {
                         // 异步获取结果
                         aop.returnRunAsync(joinPoint, (FieldCompletableFuture) result, this);
@@ -1175,7 +1229,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
 
         public <T> FieldCompletableFuture<T> autowiredFieldValue(FieldCompletableFuture<T> result) {
             GroupCollect<JOIN_POINT> groupCollectMap = new GroupCollect<>(joinPoint, result, aop, this);
-            if (!groupCollectMap.start(false, result.isUseAggregation())) {
+            if (!groupCollectMap.start(false, result.isUseAggregation(), false)) {
                 groupCollectMap.threadSnapshot = new ThreadSnapshot(groupCollectMap.aop.taskDecorate);
                 try {
                     aop.futureChainCallList.putLast(groupCollectMap);
@@ -1809,7 +1863,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     groupCollectMap.close();
                     complete(null, null);
                 } else {
-                    AsyncAutowired.start(groupCollectMap).whenComplete(this::complete);//AllMergePendingRunnable groupCollectMap.partition().isEmpty()
+                    AsyncAutowired.start(groupCollectMap, groupCollectMap.aop.taskExecutor).whenComplete(this::complete);//AllMergePendingRunnable groupCollectMap.partition().isEmpty()
                 }
             } catch (Throwable t) {
                 groupCollectMap.close();
@@ -1860,7 +1914,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                     groupCollectMap.close();
                     complete(null, null);
                 } else {
-                    AsyncAutowired.start(groupCollectMap).whenComplete(this::complete);//PartMergePendingRunnable groupCollectMap.partition().isEmpty()
+                    AsyncAutowired.start(groupCollectMap, groupCollectMap.aop.taskExecutor).whenComplete(this::complete);//PartMergePendingRunnable groupCollectMap.partition().isEmpty()
                 }
             } catch (Throwable t) {
                 groupCollectMap.close();
@@ -1943,12 +1997,16 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
         }
 
         private void autowired() {
+            autowired(groupCollectMap.aop.taskExecutor);
+        }
+
+        private void autowired(Executor taskExecutor) {
             try {
                 if (groupCollectMap.partition().isEmpty()) {//Pending
                     groupCollectMap.close();
                     complete(null, null);
                 } else {
-                    AsyncAutowired.start(groupCollectMap).whenComplete(this::complete);//Pending groupCollectMap.partition().isEmpty()
+                    AsyncAutowired.start(groupCollectMap, taskExecutor).whenComplete(this::complete);//Pending groupCollectMap.partition().isEmpty()
                 }
             } catch (Throwable t) {
                 groupCollectMap.close();
@@ -2064,7 +2122,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             }
             while (!chainCallPollList.isEmpty()) {
                 GroupCollect<JOIN_POINT> remove = chainCallPollList.remove(chainCallPollList.size() - 1);
-                if (!remove.start(false, true)) {
+                if (!remove.start(false, true, false)) {
                     chainCallPollList.add(remove);
                     break;
                 }
