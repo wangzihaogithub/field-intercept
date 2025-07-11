@@ -18,6 +18,7 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
     protected final Class<VALUE> valueClass;
     protected final Function<Collection<KEY>, Map<KEY, VALUE>> selectValueMapByKeys;
     protected Object configurableEnvironment;
+    private int maxSelectKeys = 300;
 
     public KeyValueFieldIntercept() {
         this(null, null);
@@ -70,6 +71,14 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
 
     public Function<Collection<KEY>, Map<KEY, VALUE>> getSelectValueMapByKeys() {
         return selectValueMapByKeys;
+    }
+
+    public int getMaxSelectKeys() {
+        return maxSelectKeys;
+    }
+
+    public void setMaxSelectKeys(int maxSelectKeys) {
+        this.maxSelectKeys = maxSelectKeys;
     }
 
     @Override
@@ -170,14 +179,18 @@ public class KeyValueFieldIntercept<KEY, VALUE, JOIN_POINT> implements ReturnFie
     }
 
     public Map<KEY, VALUE> selectValueMapByKeys(List<CField> cFields, Collection<KEY> keys) {
-        Map<KEY, VALUE> valueMap = selectValueMapByKeys(keys);
-        if (valueMap == null) {
-            if (selectValueMapByKeys == null) {
-                throw new UnsupportedOperationException("您的selectValueMapByKeys方法未实现完全");
+        List<List<KEY>> lists = Lists.partition(keys, maxSelectKeys);
+        Map<KEY, VALUE> result = new LinkedHashMap<>((int) (keys.size() / 0.75F + 1));
+        for (List<KEY> partitionKeys : lists) {
+            Map<KEY, VALUE> valueMap = selectValueMapByKeys(partitionKeys);
+            if (valueMap == null && selectValueMapByKeys != null) {
+                valueMap = selectValueMapByKeys.apply(partitionKeys);
             }
-            valueMap = selectValueMapByKeys.apply(keys);
+            if (valueMap != null) {
+                result.putAll(valueMap);
+            }
         }
-        return valueMap;
+        return result;
     }
 
     protected KEY[] rewriteKeyDataIfNeed(KEY keyData, CField cField, Map<KEY, VALUE> valueMap, Map<String, Object> attachment) {

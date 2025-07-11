@@ -15,6 +15,7 @@ import java.util.function.Function;
 public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispatchAop.FieldIntercept<JOIN_POINT>, ReturnFieldDispatchAop.SelectMethodHolder {
     protected final Class<KEY> keyClass;
     protected Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys;
+    private int maxSelectKeys = 300;
 
     public KeyNameFieldIntercept() {
         this(null, null);
@@ -55,6 +56,14 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
 
     public void setSelectNameMapByKeys(Function<Collection<KEY>, Map<KEY, ?>> selectNameMapByKeys) {
         this.selectNameMapByKeys = selectNameMapByKeys;
+    }
+
+    public int getMaxSelectKeys() {
+        return maxSelectKeys;
+    }
+
+    public void setMaxSelectKeys(int maxSelectKeys) {
+        this.maxSelectKeys = maxSelectKeys;
     }
 
     @Override
@@ -151,30 +160,27 @@ public class KeyNameFieldIntercept<KEY, JOIN_POINT> implements ReturnFieldDispat
     }
 
     public Map<KEY, ?> selectObjectMapByKeys(List<CField> cFields, Collection<KEY> keys) {
-        Map<KEY, ?> nameMap = selectNameMapByKeys(cFields, keys);
-        if (nameMap == null) {
-            nameMap = selectNameListMapByKeys(cFields, keys);
+        List<List<KEY>> lists = Lists.partition(keys, maxSelectKeys);
+        Map<KEY, Object> result = new LinkedHashMap<>((int) (keys.size() / 0.75F + 1));
+        for (List<KEY> partitionKeys : lists) {
+            Map<KEY, ?> nameMap = selectNameMapByKeys(cFields, partitionKeys);
+            if (nameMap == null) {
+                nameMap = selectNameListMapByKeys(cFields, partitionKeys);
+            }
+            if (nameMap == null && selectNameMapByKeys != null) {
+                nameMap = selectNameMapByKeys.apply(partitionKeys);
+            }
+            if (nameMap != null) {
+                result.putAll(nameMap);
+            }
         }
-        if (nameMap == null && selectNameMapByKeys != null) {
-            nameMap = selectNameMapByKeys.apply(keys);
-        }
-        if (nameMap == null) {
-            throw new UnsupportedOperationException("您的selectNameMapByKeys方法未实现完全");
-        }
-        return nameMap;
+        return result;
     }
 
     public Map<KEY, ?> selectSerializeNameMapByKeys(List<CField.SerializeCField> serializeCFields, Collection<KEY> keys) {
-        List<CField> cFieldList = CField.parse(serializeCFields);
-        Map<KEY, ?> nameMap = selectNameMapByKeys(cFieldList, keys);
-        if (nameMap == null) {
-            nameMap = selectNameListMapByKeys(cFieldList, keys);
-        }
-        if (nameMap == null && selectNameMapByKeys != null) {
-            nameMap = selectNameMapByKeys.apply(keys);
-        }
-        Map<String, Object> attachment = newtSerializeAttachment(serializeCFields, (Map<KEY, Object>) nameMap);
-        return PlatformDependentUtil.mergeAttachment(nameMap, attachment);
+        Map<KEY, ?> result = selectObjectMapByKeys(CField.parse(serializeCFields), keys);
+        Map<String, Object> attachment = newtSerializeAttachment(serializeCFields, (Map<KEY, Object>) result);
+        return PlatformDependentUtil.mergeAttachment(result, attachment);
     }
 
     protected Map<String, Object> newtSerializeAttachment(List<CField.SerializeCField> serializeCFields, Map<KEY, Object> nameMap) {
