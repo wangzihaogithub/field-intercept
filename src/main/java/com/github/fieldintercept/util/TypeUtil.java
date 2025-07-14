@@ -22,9 +22,10 @@ public class TypeUtil {
      * @param object                 实例对象
      * @param parametrizedSuperclass 声明泛型的类
      * @param typeParamName          泛型名称
+     * @param <T> T 类型
      * @return 泛型的实际类型
      */
-    public static Class<?> findGenericType(final Object object, Class<?> parametrizedSuperclass, String typeParamName) {
+    public static <T> Class<T> findGenericType(final Object object, Class<?> parametrizedSuperclass, String typeParamName) {
         final Class<?> thisClass = object.getClass();
         Class<?> currentClass = thisClass;
         for (; ; ) {
@@ -43,7 +44,7 @@ public class TypeUtil {
                 }
                 Type genericSuperType = currentClass.getGenericSuperclass();
                 if (!(genericSuperType instanceof ParameterizedType)) {
-                    return Object.class;
+                    return (Class<T>) Object.class;
                 }
                 Type[] actualTypeParams = ((ParameterizedType) genericSuperType).getActualTypeArguments();
                 Type actualTypeParam = actualTypeParams[typeParamIndex];
@@ -51,7 +52,7 @@ public class TypeUtil {
                     actualTypeParam = ((ParameterizedType) actualTypeParam).getRawType();
                 }
                 if (actualTypeParam instanceof Class) {
-                    return (Class<?>) actualTypeParam;
+                    return (Class<T>) actualTypeParam;
                 }
                 if (actualTypeParam instanceof GenericArrayType) {
                     Type componentType = ((GenericArrayType) actualTypeParam).getGenericComponentType();
@@ -59,7 +60,7 @@ public class TypeUtil {
                         componentType = ((ParameterizedType) componentType).getRawType();
                     }
                     if (componentType instanceof Class) {
-                        return Array.newInstance((Class<?>) componentType, 0).getClass();
+                        return (Class<T>) Array.newInstance((Class<?>) componentType, 0).getClass();
                     }
                 }
                 if (actualTypeParam instanceof TypeVariable) {
@@ -67,7 +68,7 @@ public class TypeUtil {
                     TypeVariable<?> v = (TypeVariable<?>) actualTypeParam;
                     currentClass = thisClass;
                     if (!(v.getGenericDeclaration() instanceof Class)) {
-                        return Object.class;
+                        return (Class<T>) Object.class;
                     }
 
                     parametrizedSuperclass = (Class<?>) v.getGenericDeclaration();
@@ -75,7 +76,7 @@ public class TypeUtil {
                     if (parametrizedSuperclass.isAssignableFrom(thisClass)) {
                         continue;
                     } else {
-                        return Object.class;
+                        return (Class<T>) Object.class;
                     }
                 }
                 return fail(thisClass, typeParamName);
@@ -87,7 +88,7 @@ public class TypeUtil {
         }
     }
 
-    private static Class<?> fail(Class<?> type, String typeParamName) {
+    private static <T> Class<T> fail(Class<?> type, String typeParamName) {
         throw new IllegalStateException(
                 "cannot determine the type of the type parameter '" + typeParamName + "': " + type);
     }
