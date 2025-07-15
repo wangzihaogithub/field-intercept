@@ -9,6 +9,7 @@ import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.config.ReferenceConfig;
 import org.apache.dubbo.config.ServiceConfig;
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.ServiceBean;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
@@ -16,7 +17,6 @@ import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.cluster.LoadBalance;
 import org.apache.dubbo.rpc.cluster.loadbalance.ShortestResponseLoadBalance;
-import org.apache.dubbo.rpc.model.ApplicationModel;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
@@ -47,18 +47,19 @@ public class DubboBeanDefinitionRegistrar extends FieldInterceptBeanDefinitionRe
 
     private static ServiceConfig<Api> addService(Api api, FieldinterceptProperties.Dubbo dubbo) {
         ServiceConfig<Api> config = buildService(api, dubbo);
-        ApplicationModel.getConfigManager().addService(config);
+        DubboBootstrap.getInstance().service(config);
         return config;
     }
 
     private static ReferenceConfig<Api> addReference(FieldinterceptProperties.Dubbo dubbo) {
         ReferenceConfig<Api> reference = buildReference(dubbo);
-        ApplicationModel.getConfigManager().addReference(reference);
+        DubboBootstrap.getInstance().reference(reference);
         return reference;
     }
 
     private static ServiceConfig<Api> buildService(Api api, FieldinterceptProperties.Dubbo dubbo) {
         ServiceConfig<Api> config = new ServiceConfig<>();
+        config.setExport(true);
         config.setRef(api);
         config.setInterface(Api.class);
         config.setScope("remote");

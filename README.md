@@ -12,7 +12,10 @@
 
 
 #### 软件架构
-只依赖JDK，无其他多余依赖
+1. 只依赖JDK，无其他多余依赖
+2. 兼容java8～java21
+3. 兼容springboot2.x～springboot3.x
+4. 兼容dubbo2.7～dubbo3（兼容dubbo调用方没有提供方的类，会退化为Map）
 
 
 #### 安装教程
@@ -278,7 +281,7 @@
                       rpc: dubbo
                       role: provider
                       dubbo:
-                        registry: 'myRegistryConfig' # 参考dubbo注册中心配置
+                        registry: 'myRegistryConfig' # 非必填，参考dubbo注册中心配置
                   batch-aggregation:
                     enabled: auto
 
@@ -291,8 +294,8 @@
                         enabled: true
                         rpc: dubbo
                         role: consumer
-                    dubbo:
-                        registry: 'myRegistryConfig' # 参考dubbo注册中心配置
+                        dubbo:
+                            registry: 'myRegistryConfig' # 非必填，参考dubbo注册中心配置
                     batch-aggregation:
                         enabled: auto
 
