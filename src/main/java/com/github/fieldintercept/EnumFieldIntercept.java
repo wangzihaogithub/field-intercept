@@ -17,7 +17,7 @@ public class EnumFieldIntercept extends KeyValueFieldIntercept<Object, Object, O
     }
 
     private static Class<? extends java.lang.Enum>[] getEnumClasses(Annotation annotation) {
-        return (Class<? extends java.lang.Enum>[]) AnnotationUtil.getValue(annotation);
+        return (Class<? extends java.lang.Enum>[]) AnnotationUtil.getValue(annotation, "enumGroup");
     }
 
     @Override

@@ -32,11 +32,21 @@ public class BeanUtil {
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 300;
         }
+
+        @Override
+        public Constructor computeIfAbsent(Class key, Function<? super Class, ? extends Constructor> mappingFunction) {
+            return synchronizedComputeIfAbsent(this, key, mappingFunction);
+        }
     };
     private static final Map<Class, Boolean> BASE_TYPE_FLAG_MAP = new LinkedHashMap<Class, Boolean>(256, 0.75F, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry eldest) {
             return size() > 1000;
+        }
+
+        @Override
+        public Boolean computeIfAbsent(Class key, Function<? super Class, ? extends Boolean> mappingFunction) {
+            return synchronizedComputeIfAbsent(this, key, mappingFunction);
         }
     };
     private static final ThreadLocal<SimpleDateFormat> FORMAT_THREAD_LOCAL = ThreadLocal.withInitial(SimpleDateFormat::new);
@@ -60,6 +70,22 @@ public class BeanUtil {
         }
         UNSAFE = unsafe;
         UNSAFE_ALLOCATE_INSTANCE_METHOD = unsafeAllocateInstanceMethod;
+    }
+
+    public static <V, K> V synchronizedComputeIfAbsent(Map<K, V> map, K key, Function<? super K, ? extends V> mappingFunction) {
+        V v;
+        if ((v = map.get(key)) == null) {
+            synchronized (map) {
+                if ((v = map.get(key)) == null) {
+                    V newValue;
+                    if ((newValue = mappingFunction.apply(key)) != null) {
+                        map.put(key, newValue);
+                        return newValue;
+                    }
+                }
+            }
+        }
+        return v;
     }
 
     public static boolean isBaseType(Class type) {

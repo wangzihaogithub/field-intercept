@@ -17,13 +17,19 @@ public @interface EnumFieldConsumer {
      * 基础枚举名称
      */
     String NAME = "EnumFieldConsumer";
+    /**
+     * 基础枚举名称
+     *
+     * @return 枚举
+     */
+    String value() default NAME;
 
     /**
      * 枚举组
      *
      * @return 枚举
      */
-    Class<? extends Enum>[] value();
+    Class<? extends Enum>[] enumGroup();
 
     /**
      * 通常用于告知aop. id字段,或者key字段

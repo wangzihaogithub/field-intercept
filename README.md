@@ -212,7 +212,7 @@
               /**
               * 枚举组
                 */
-                MyBizEnumGroupEnum[] value();
+                MyBizEnumGroupEnum[] enumGroup();
         
               /**
               * value解析

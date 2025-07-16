@@ -1384,7 +1384,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         beanHandler = new BeanMap(bean);
                     }
                     EnumDBFieldConsumer cast = aop.enumDBFieldConsumerCache.cast(enumDBFieldConsumer);
-                    addField(EnumDBFieldConsumer.NAME, beanHandler, field, enumDBFieldConsumer, cast, aop.enumDBFieldConsumerCache.type);
+                    addField(cast.value(), beanHandler, field, enumDBFieldConsumer, cast, aop.enumDBFieldConsumerCache.type);
                     continue;
                 }
 
@@ -1395,7 +1395,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
                         beanHandler = new BeanMap(bean);
                     }
                     EnumFieldConsumer cast = aop.enumFieldConsumerCache.cast(enumFieldConsumer);
-                    addField(EnumFieldConsumer.NAME, beanHandler, field, enumFieldConsumer, cast, aop.enumFieldConsumerCache.type);
+                    addField(cast.value(), beanHandler, field, enumFieldConsumer, cast, aop.enumFieldConsumerCache.type);
                     continue;
                 }
 
@@ -1645,8 +1645,9 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
          */
         private void addField(String consumerName, BeanMap beanHandler, Field field,
                               Annotation annotation, Annotation castAnnotation, Class<? extends Annotation> castType) {
+            String beanName = getBeanName(consumerName);
             CField cField = new CField(consumerName, beanHandler, field, annotation, castAnnotation, castType, aop.configurableEnvironment);
-            groupCollectMap.computeIfAbsent(consumerName, e -> newList(this, consumerName))
+            groupCollectMap.computeIfAbsent(beanName, e -> newList(this, e))
                     .add(cField);
         }
 

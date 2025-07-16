@@ -96,11 +96,11 @@ public class OrderSelectListResp {
          */
         private Integer interRoundKey;
 
-        @EnumFieldConsumer(value = InterTypeEnum.class, keyField = "interType")
+        @EnumFieldConsumer(enumGroup = InterTypeEnum.class, keyField = "interType")
         private String interTypeName;
-        @EnumFieldConsumer(value = InterTypeEnum.class, keyField = "interType", valueField = "${color}")
+        @EnumFieldConsumer(enumGroup = InterTypeEnum.class, keyField = "interType", valueField = "${color}")
         private String interTypeColor;
-        @EnumDBFieldConsumer(value = BizEnumGroupEnum.INTER_ROUND, keyField = "interRoundKey")
+        @EnumDBFieldConsumer(enumGroup = BizEnumGroupEnum.INTER_ROUND, keyField = "interRoundKey")
         private String interRoundName;
 
         public String getTitle() {

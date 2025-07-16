@@ -145,6 +145,11 @@ public class CField {
         return cFieldList;
     }
 
+    public <T> T getBeanNameArgValue(String argName, Class<T> type) {
+        String value = ReturnFieldDispatchAop.getBeanNameArgValue(consumerName, argName);
+        return TypeUtil.cast(value, type);
+    }
+
     public String keyDataId(Object keyData) {
         return "kd_" + id + "_" + keyData;
     }

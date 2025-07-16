@@ -15,9 +15,9 @@ public class User {
     @FieldConsumer(value = CUSTOMER_USER, keyField = "leaderUserId")
     private User leaderUser;
 
-    @EnumFieldConsumer(value = UserStatusEnum.class, keyField = "status")
+    @EnumFieldConsumer(enumGroup = UserStatusEnum.class, keyField = "status")
     private String statusName;
-    @EnumFieldConsumer(value = UserStatusEnum.class, keyField = "status")
+    @EnumFieldConsumer(enumGroup = UserStatusEnum.class, keyField = "status")
     private UserStatusEnum statusEnum;
 
     private String childIds;

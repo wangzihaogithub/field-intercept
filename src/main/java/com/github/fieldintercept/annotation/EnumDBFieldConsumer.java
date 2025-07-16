@@ -23,11 +23,18 @@ public @interface EnumDBFieldConsumer {
     String NAME = "EnumDBFieldConsumer";
 
     /**
+     * 基础枚举名称
+     *
+     * @return 枚举
+     */
+    String value() default NAME;
+
+    /**
      * 枚举组
      *
      * @return 枚举
      */
-    String[] value();
+    String[] enumGroup();
 
     /**
      * value解析
@@ -76,7 +83,7 @@ public @interface EnumDBFieldConsumer {
     class DefaultValueParser implements ValueParser {
         @Override
         public String[] apply(CField cField) {
-            Object value = AnnotationUtil.getValue(cField.getAnnotation());
+            Object value = AnnotationUtil.getValue(cField.getAnnotation(), "enumGroup");
             if (value instanceof String[]) {
                 return (String[]) value;
             } else if (value instanceof String) {

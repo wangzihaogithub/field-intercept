@@ -20,7 +20,7 @@ public @interface EnumDBFieldConsumer {
      *
      * @return
      */
-    BizEnumGroupEnum[] value();
+    BizEnumGroupEnum[] enumGroup();
 
     /**
      * 通常用于告知aop. id字段,或者key字段
