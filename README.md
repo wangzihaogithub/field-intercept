@@ -23,7 +23,7 @@
 
 #### 详细看示例项目
 
-[![https://github.com/wangzihaogithub/field-intercept-example](https://github.com/wangzihaogithub/field-intercept-example)](https://github.com/wangzihaogithub/field-intercept-example)
+[https://github.com/wangzihaogithub/field-intercept-example](https://github.com/wangzihaogithub/field-intercept-example)
 
 
 #### 使用概要
