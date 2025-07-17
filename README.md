@@ -9,7 +9,7 @@
 
 - 如果你写业务代码时，将列表查询出来后，经常需要用id再查询一遍换数据，看这个demo [demo1-simple](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo1-simple/README.md), [demo3-userdefined-selectbyid](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo3-userdefined/userdefined-selectbyid/README.md)
 - 如果你写业务代码时，将列表查询出来后，经常需要再用字典表再查询一遍换数据，看这个demo [demo3-userdefined-datadict](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo3-userdefined/userdefined-datadict/README.md) , [demo3-userdefined-datadict2](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo3-userdefined/userdefined-datadict2/README.md)
-- 如果你是dubbo微服务项目，看完前两个后，看这个demo [demo2-dubbo](demo2-dubbo/README.md)
+- 如果你是dubbo微服务项目，看完前两个后，看这个demo [demo2-dubbo](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo2-dubbo/README.md)
 - 如果你想将常用的查询独立一个注解区分出来，看这个demo [demo3-userdefined-annotation](https://github.com/wangzihaogithub/field-intercept-example/blob/master/demo3-userdefined/userdefined-annotation/README.md)
 - 如果你需要做查询编排优化, 或更多自定义配置，看这个demo [SpringYML](https://github.com/wangzihaogithub/field-intercept-example/blob/master/SpringYML.md)
 
