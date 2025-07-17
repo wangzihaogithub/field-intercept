@@ -30,6 +30,7 @@
 
 1.  添加maven依赖, 在pom.xml中加入 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.wangzihaogithub/field-intercept/badge.svg)](https://search.maven.org/search?q=g:com.github.wangzihaogithub%20AND%20a:field-intercept)
 
+```xml
 
             <!-- https://mvnrepository.com/artifact/com.github.wangzihaogithub/field-intercept -->
             <dependency>
@@ -38,17 +39,24 @@
                 <version>1.0.18</version>
             </dependency>
 
+```
+
 2. 添加配置，写上业务包名， 比如com.ig， 认为com.ig包下都是业务实体类
 
         application.yaml里
 
-            spring:
-                fieldintercept:
-                    beanBasePackages: 'com.xxx'
+```yaml
+
+   spring:
+      fieldintercept:
+         beanBasePackages: 'com.xxx'
+
+```
 
 
 3. 在业务系统增加抽象Service， 类似下面这种
 
+```java
 
          public abstract class AbstractCrudService<
                REPOSITORY extends AbstractMapper<PO, ID>, 
@@ -88,16 +96,23 @@
                        return pos.stream().collect(Collectors.toMap(AbstractPO::getId, po -> nameGetter.getReadMethod().invoke(po)));
                    }
          }
-
+         
+```
 
 4. 然后你可以使用方式1或方式2暴露你的提供者逻辑，就可以供他人使用了
 
+```java
 
          // 方式1 （通用的无逻辑的根据id查询）
          @Service("SYS_USER")
-         public class SysUserServiceImpl extends AbstractCrudService<Long, SysUser, SysUserMapper>
-   
-   
+         public class SysUserServiceImpl extends AbstractCrudService<Long, SysUser, SysUserMapper>{
+    
+         }
+
+```
+
+```java
+
          // 方式2（自定义逻辑的根据id查询）
          @Service("TALENT_WORK_LAST")
          public class TalentWorkLastServiceImpl 
@@ -115,7 +130,11 @@
               }
        }
 
+```
+
 5. 使用方式：其他使用者在需要你的地方写上你的名字"SYS_USER", 这个StatisticsDetailResp只要遇到触发查询的地方，就会被填充。
+
+```java
 
          @Data
          public class StatisticsDetailResp {
@@ -165,17 +184,26 @@
 
          }
          
+```
+
 
          触发查询的入口有两种：
-          1. 方法上标记 @ReturnFieldAop注解。
+
+```java
+
+          // 1. 方法上标记 @ReturnFieldAop注解。
 
            @ReturnFieldAop
            @Override
            public List<StatisticsDetailResp> selectHrDetailList(StatisticsHrListDetailReq req) {
                return mapper.selectHrDetailList(req);
            }
+           
+```
 
-         2. 主动触发查询
+```java
+
+          // 2. 主动触发查询
             @Autowired 
             private ReturnFieldDispatchAop returnFieldDispatchAop;
 
@@ -195,11 +223,13 @@
                return list;
            }
 
-
+```
 
 #### 其他高阶用法
 
 - 枚举表或字典表
+
+```java
 
         // 解锁第一种用法：value为字符串，这种不需要你自定义注解。
         @EnumFieldConsumer(value = "INTER_ROUND", keyField = "interRoundKey")
@@ -208,6 +238,7 @@
         // 解锁第二种用法：value为枚举类，要你自定义注解
         @MyEnumFieldConsumer(value = BizEnumGroupEnum.INTER_ROUND, keyField = "interRoundKey")
         private String interRoundName;
+        
         
         // 可选：如果你选择第二种用法，可参考如下自定义注解。如果你用的第一种，value为字符串，可以忽略这一步。
           @Retention(RetentionPolicy.RUNTIME)
@@ -273,6 +304,8 @@
                                  Collectors.toMap(BizEnumPO::getKey, e -> e)));
              }
          }
+         
+```
 
         // 结束。可以用了
 
@@ -280,7 +313,9 @@
 - 如果业务提供者在其他应用中，不在本应用里，可以借助Dubbo，别的都不用改。 详细配置参考：com.github.fieldintercept.springboot.FieldinterceptProperties
 
 
-        提供者参考配置
+```yaml
+
+#        提供者参考配置
             spring: 
                 fieldintercept:
                   bean-base-packages: 'com.xxx'
@@ -291,8 +326,11 @@
                       dubbo:
                         registry: 'myRegistryConfig' # 非必填，参考dubbo注册中心配置
 
+```
+
+```yaml
     
-        调用者参考配置
+#        调用者参考配置
             spring:
                 fieldintercept:
                     bean-base-packages: 'com.xxx'
@@ -304,7 +342,11 @@
                             registry: 'myRegistryConfig' # 非必填，参考dubbo注册中心配置
 
 
+```
+
 - 递归用法
+
+```java
 
         // 这种用法可以让纵向查询，简化为横向查询（如果递归深度为3，则只进行3次查询，不会随着条数增加而增加）
         public class FolderParent {
@@ -314,10 +356,12 @@
             @FieldConsumer(value = Providers.FOLDER, keyField = "parentId")
             private FolderParent parent;
         }
-
+        
+```
 
 - 兼容spring的多线程上下文切换组件
 
+```java
 
         @Bean
         public org.springframework.core.task.TaskDecorator taskDecorator(){
@@ -326,11 +370,14 @@
                 public Runnable decorate(Runnable runnable) {
                     return null;
                 }
-            }
+            };
         }
-
+        
+```
 
 - 非阻塞用法（取决于底层自动优化：可能为异步，可能为单线程聚合，可能为Dubbo调用）
+
+```java
 
       @ReturnFieldAop
       public CompletableFuture<List<OrderSelectListResp>> selectList() {
@@ -338,8 +385,12 @@
           return new FieldCompletableFuture<>(list);
       }
 
+```
+
 - 非阻塞链式用法（每次回掉阶段，(user,order,errorCode)都会被注入数据 ）
 
+
+```java
 
         @ReturnFieldAop
         public CompletableFuture<ErrorCode> method1() {
@@ -359,4 +410,5 @@
             return future;
         }
 
+```
 
