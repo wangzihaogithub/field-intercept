@@ -36,12 +36,7 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     public static final Executor BLOCK_EXECUTOR = Runnable::run;
     private static final Pattern QUERY_PATTERN = Pattern.compile("[?]");
     private static final Pattern DOT_PATTERN = Pattern.compile("[.]");
-    private static final Map<Class<?>, Boolean> SKIP_FIELD_CLASS_CACHE_MAP = Collections.synchronizedMap(new LinkedHashMap<Class<?>, Boolean>((int) ((6 / 0.75F) + 1), 0.75F, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<Class<?>, Boolean> eldest) {
-            return size() > 6;
-        }
-    });
+    private static final Map<Class<?>, Boolean> SKIP_FIELD_CLASS_CACHE_MAP = PlatformDependentUtil.newComputeIfAbsentMap((int) ((6 / 0.75F) + 1), 0.75F, true, 6);
     private static final Collection<Class<? extends Annotation>> SPRING_INDEXED_ANNOTATION_LIST = PlatformDependentUtil.SPRING_INDEXED_ANNOTATION != null ? Collections.singletonList(PlatformDependentUtil.SPRING_INDEXED_ANNOTATION) : null;
     public static final Predicate<Class> DEFAULT_SKIP_FIELD_CLASS_PREDICATE = type -> PlatformDependentUtil.SPRING_INDEXED_ANNOTATION != null && AnnotationUtil.findDeclaredAnnotation(type, SPRING_INDEXED_ANNOTATION_LIST, SKIP_FIELD_CLASS_CACHE_MAP) != null;
     private static ReturnFieldDispatchAop INSTANCE;
@@ -68,30 +63,10 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
     // 当前信号数量
     private final LongAdder currentSignalCounter = new LongAdder();
     private final Map<Thread, AtomicInteger> concurrentThreadMap = new ConcurrentHashMap<>();
-    private final LinkedHashMap<Class, Boolean> typeBasicCacheMap = new LinkedHashMap<Class, Boolean>(16) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 100;
-        }
-    };
-    private final Map<Class, Boolean> typeEntryCacheMap = new LinkedHashMap<Class, Boolean>(64) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 200;
-        }
-    };
-    private final Map<Class, Boolean> typeMultipleCacheMap = new LinkedHashMap<Class, Boolean>(16) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 100;
-        }
-    };
-    private final Map<Class<?>, Boolean> skipFieldClassPredicateCache = Collections.synchronizedMap(new LinkedHashMap<Class<?>, Boolean>(201, 1F, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 200;
-        }
-    });
+    private final LinkedHashMap<Class, Boolean> typeBasicCacheMap = PlatformDependentUtil.newComputeIfAbsentMap(16, 0.75F, true, 100);
+    private final Map<Class, Boolean> typeEntryCacheMap = PlatformDependentUtil.newComputeIfAbsentMap(64, 0.75F, true, 200);
+    private final Map<Class, Boolean> typeMultipleCacheMap = PlatformDependentUtil.newComputeIfAbsentMap(16, 0.75F, true, 100);
+    private final Map<Class<?>, Boolean> skipFieldClassPredicateCache = PlatformDependentUtil.newComputeIfAbsentMap(201, 1F, true, 200);
     private final AtomicBoolean pendingSignalThreadCreateFlag = new AtomicBoolean();
     private final LinkedBlockingDeque<GroupCollect<JOIN_POINT>> futureChainCallList = new LinkedBlockingDeque<>(Integer.MAX_VALUE);
     private Collection<BiConsumer<Object, Throwable>> fieldCompletableBeforeCompleteListeners = new ArrayList<>();
@@ -2028,18 +2003,8 @@ public abstract class ReturnFieldDispatchAop<JOIN_POINT> {
             this.type = type;
             this.alias = alias;
             this.cacheSize = cacheSize;
-            this.annotationCache = Collections.synchronizedMap(new LinkedHashMap<AnnotatedElement, Annotation>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<AnnotatedElement, Annotation> eldest) {
-                    return size() > AnnotationCache.this.cacheSize;
-                }
-            });
-            this.instanceCache = Collections.synchronizedMap(new LinkedHashMap<Annotation, ANNOTATION>((int) ((cacheSize / 0.75F) + 1), 0.75F, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<Annotation, ANNOTATION> eldest) {
-                    return size() > AnnotationCache.this.cacheSize;
-                }
-            });
+            this.annotationCache = PlatformDependentUtil.newComputeIfAbsentMap((int) ((cacheSize / 0.75F) + 1), 0.75F, true, cacheSize);
+            this.instanceCache = PlatformDependentUtil.newComputeIfAbsentMap((int) ((cacheSize / 0.75F) + 1), 0.75F, true, cacheSize);
         }
 
         public Annotation findDeclaredAnnotation(AnnotatedElement element) {

@@ -97,6 +97,39 @@ public class PlatformDependentUtil {
         METHOD_ASPECTJ_METHOD_SIGNATURE_GET_METHOD = aspectjMethodSignatureGetMethod;
     }
 
+    public static <K, V> LinkedHashMap<K, V> newComputeIfAbsentMap(int initialCapacity,
+                                                                   float loadFactor,
+                                                                   boolean accessOrder,
+                                                                   int removeEldestEntry) {
+        return new LinkedHashMap<K, V>(initialCapacity, loadFactor, accessOrder) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry eldest) {
+                if (removeEldestEntry >= 0) {
+                    return size() > removeEldestEntry;
+                } else {
+                    return false;
+                }
+            }
+
+            @Override
+            public V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
+                V v;
+                if ((v = get(key)) == null) {
+                    synchronized (this) {
+                        if ((v = get(key)) == null) {
+                            V newValue;
+                            if ((newValue = mappingFunction.apply(key)) != null) {
+                                put(key, newValue);
+                                return newValue;
+                            }
+                        }
+                    }
+                }
+                return v;
+            }
+        };
+    }
+
     public static Method aspectjMethodSignatureGetMethod(Object methodSignature) {
         if (methodSignature != null && METHOD_ASPECTJ_JOIN_POINT_GET_SIGNATURE != null && METHOD_ASPECTJ_JOIN_POINT_GET_SIGNATURE.getDeclaringClass().isAssignableFrom(methodSignature.getClass())) {
             try {

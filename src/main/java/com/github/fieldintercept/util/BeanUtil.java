@@ -27,28 +27,8 @@ public class BeanUtil {
             return null;
         }
     };
-    private static final Map<Class, Constructor> CONSTRUCTOR_NO_ARG_MAP = new LinkedHashMap<Class, Constructor>(128, 0.75F, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 300;
-        }
-
-        @Override
-        public Constructor computeIfAbsent(Class key, Function<? super Class, ? extends Constructor> mappingFunction) {
-            return synchronizedComputeIfAbsent(this, key, mappingFunction);
-        }
-    };
-    private static final Map<Class, Boolean> BASE_TYPE_FLAG_MAP = new LinkedHashMap<Class, Boolean>(256, 0.75F, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry eldest) {
-            return size() > 1000;
-        }
-
-        @Override
-        public Boolean computeIfAbsent(Class key, Function<? super Class, ? extends Boolean> mappingFunction) {
-            return synchronizedComputeIfAbsent(this, key, mappingFunction);
-        }
-    };
+    private static final Map<Class, Constructor> CONSTRUCTOR_NO_ARG_MAP = PlatformDependentUtil.newComputeIfAbsentMap(128, 0.75F, true, 300);
+    private static final Map<Class, Boolean> BASE_TYPE_FLAG_MAP = PlatformDependentUtil.newComputeIfAbsentMap(256, 0.75F, true, 1000);
     private static final ThreadLocal<SimpleDateFormat> FORMAT_THREAD_LOCAL = ThreadLocal.withInitial(SimpleDateFormat::new);
     private static final Class[] EMPTY_CLASS_ARRAY = {};
     private static final Object[] EMPTY_OBJECT_ARRAY = {};
@@ -70,22 +50,6 @@ public class BeanUtil {
         }
         UNSAFE = unsafe;
         UNSAFE_ALLOCATE_INSTANCE_METHOD = unsafeAllocateInstanceMethod;
-    }
-
-    public static <V, K> V synchronizedComputeIfAbsent(Map<K, V> map, K key, Function<? super K, ? extends V> mappingFunction) {
-        V v;
-        if ((v = map.get(key)) == null) {
-            synchronized (map) {
-                if ((v = map.get(key)) == null) {
-                    V newValue;
-                    if ((newValue = mappingFunction.apply(key)) != null) {
-                        map.put(key, newValue);
-                        return newValue;
-                    }
-                }
-            }
-        }
-        return v;
     }
 
     public static boolean isBaseType(Class type) {
