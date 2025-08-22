@@ -28,7 +28,7 @@
 
 #### 使用概要
 
-1.  添加maven依赖, 在pom.xml中加入 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.github.wangzihaogithub/field-intercept/badge.svg)](https://search.maven.org/search?q=g:com.github.wangzihaogithub%20AND%20a:field-intercept)
+1.  添加maven依赖, 在pom.xml中加入 [![Maven Central](https://img.shields.io/maven-central/v/com.github.wangzihaogithub/field-intercept.svg?label=Maven%20Central)](https://search.maven.org/search?q=g:com.github.wangzihaogithub%20AND%20a:field-intercept)
 
 ```xml
 
