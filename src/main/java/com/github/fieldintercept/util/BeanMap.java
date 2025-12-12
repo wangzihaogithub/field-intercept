@@ -141,14 +141,33 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                     }
 
                     Field field = getField(propertyDescriptor);
-                    if (field != null) {
-                        field.setAccessible(true);
+                    if (field != null && makeAccessible(field)) {
                         return field.get(bean);
                     }
                 }
             } catch (Exception ignored) {
             }
             return null;
+        }
+    }
+
+    /**
+     * 尝试设置字段可访问
+     * 由于 Java 9 引入的 模块系统（JPMS, Java Platform Module System） java.base 模块（包含 java.lang 包）默认不开放（open）其内部包给未命名模块（unnamed module），因此反射访问被拒绝，抛出 InaccessibleObjectException。
+     *
+     * @param field 字段
+     * @return 是否成功
+     */
+    private static boolean makeAccessible(Field field) {
+        boolean isJavaPackage = Optional.of(field.getDeclaringClass()).map(Class::getPackage).map(Package::getName).map(o -> o.startsWith("java.")).orElse(true);
+        if (isJavaPackage) {
+            return false;
+        }
+        try {
+            field.setAccessible(true);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 
@@ -180,9 +199,10 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                     Field field = getField(propertyDescriptor);
                     if (field != null && !Modifier.isFinal(field.getModifiers())) {
                         Object castValue = TypeUtil.cast(value, field.getType());
-                        field.setAccessible(true);
-                        field.set(bean, castValue);
-                        return true;
+                        if (makeAccessible(field)) {
+                            field.set(bean, castValue);
+                            return true;
+                        }
                     }
                 }
             } catch (Exception ignored) {
@@ -217,6 +237,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     public static List<Field> findFieldList(Class<?> beanClass) {
         return findPropertyFieldDescriptor(beanClass).values().stream()
+                .filter(FieldPropertyDescriptor::isAccessible)
                 .map(FieldPropertyDescriptor::getField)
                 .collect(Collectors.toList());
     }
@@ -351,6 +372,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                 } else {
                     getterName = "get" + name.substring(0, 1).toUpperCase(ENGLISH) + name.substring(1);
                 }
+
                 try {
                     result.put(name, new FieldPropertyDescriptor(field, type, getterName, setterName));
                 } catch (IntrospectionException e) {
@@ -391,7 +413,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
     }
 
     public static Field getField(PropertyDescriptor descriptor) {
-        return descriptor instanceof FieldPropertyDescriptor ? ((FieldPropertyDescriptor) descriptor).getField() : null;
+        return descriptor instanceof FieldPropertyDescriptor && ((FieldPropertyDescriptor) descriptor).isAccessible() ? ((FieldPropertyDescriptor) descriptor).getField() : null;
     }
 
     public static Annotation[] getFieldDeclaredAnnotations(PropertyDescriptor descriptor) {
@@ -437,13 +459,14 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     public Field getField(Object key) {
         FieldPropertyDescriptor descriptor = getFieldPropertyDescriptor(key);
-        return descriptor != null ? descriptor.getField() : null;
+        return descriptor != null && descriptor.isAccessible() ? descriptor.getField() : null;
     }
 
     public List<String> getTransientFields() {
         List<String> keys = new ArrayList<>();
         for (Map.Entry<String, FieldPropertyDescriptor> entry : fieldDescriptorMap.entrySet()) {
-            if (Modifier.isTransient(entry.getValue().getField().getModifiers())) {
+            FieldPropertyDescriptor value = entry.getValue();
+            if (value.isAccessible() && Modifier.isTransient(value.getField().getModifiers())) {
                 keys.add(entry.getKey());
             }
         }
@@ -518,8 +541,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                 }
 
                 Field field = getField(propertyDescriptor);
-                if (field != null) {
-                    field.setAccessible(true);
+                if (field != null && makeAccessible(field)) {
                     return field.get(bean);
                 } else {
                     return super.get(key);
@@ -558,9 +580,10 @@ public class BeanMap extends LinkedHashMap<String, Object> {
                 Field field = getField(propertyDescriptor);
                 if (field != null && !Modifier.isFinal(field.getModifiers())) {
                     Object castValue = cast(value, field.getType());
-                    field.setAccessible(true);
-                    field.set(bean, castValue);
-                    return true;
+                    if (makeAccessible(field)) {
+                        field.set(bean, castValue);
+                        return true;
+                    }
                 } else {
                     super.put(key, value);
                 }
@@ -786,17 +809,22 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     public static class FieldPropertyDescriptor extends PropertyDescriptor {
         private final Field field;
+        private final boolean accessible;
 
         public FieldPropertyDescriptor(Field field) throws IntrospectionException {
             super(field.getName(), null, null);
             this.field = field;
-            field.setAccessible(true);
+            accessible = makeAccessible(field);
         }
 
         public FieldPropertyDescriptor(Field field, Class<?> beanClass, String readMethodName, String writeMethodName) throws IntrospectionException {
             super(field.getName(), beanClass, readMethodName, writeMethodName);
             this.field = field;
-            field.setAccessible(true);
+            accessible = makeAccessible(field);
+        }
+
+        public boolean isAccessible() {
+            return accessible;
         }
 
         public Field getField() {
@@ -810,7 +838,7 @@ public class BeanMap extends LinkedHashMap<String, Object> {
 
     public static class SoftHashMap<K, V> extends AbstractMap<K, V> {
         private final Map<K, SpecialValue> map = new HashMap<>();
-        private ReferenceQueue<? super V> rq = new ReferenceQueue<>();
+        private final ReferenceQueue<? super V> rq = new ReferenceQueue<>();
 
         @SuppressWarnings("unchecked")
         private void processQueue() {
